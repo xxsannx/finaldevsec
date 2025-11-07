@@ -1,24 +1,11 @@
 import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
 
 export default defineConfig({
-  root: '.',
-  publicDir: 'public',
-  
-  server: {
-    port: 3000,
-    host: true,
-    open: true,
-  },
-  
-  build: {
-    outDir: 'dist',
-    assetsDir: 'assets',
-    sourcemap: true,
-  },
-  
-  css: {
-    postcss: './postcss.config.js'
-  },
-  
-  plugins: [],
+    plugins: [
+        laravel({
+            input: ['resources/css/app.css', 'resources/js/app.js'],
+            refresh: true,
+        }),
+    ],
 });
