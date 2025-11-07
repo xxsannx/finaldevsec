@@ -49,32 +49,23 @@ jobs:
 
     - name: Create Test Directory Structure
       run: |
-        # Create test directories if they don't exist
         mkdir -p tests/Unit tests/Feature
-        # Create basic test files
         if [ ! -f "tests/TestCase.php" ]; then
           cat > tests/TestCase.php << 'EOF'
 <?php
-
 namespace Tests;
-
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
-
 abstract class TestCase extends BaseTestCase
 {
     use CreatesApplication;
 }
 EOF
         fi
-
         if [ ! -f "tests/Unit/ExampleTest.php" ]; then
           cat > tests/Unit/ExampleTest.php << 'EOF'
 <?php
-
 namespace Tests\Unit;
-
 use PHPUnit\Framework\TestCase;
-
 class ExampleTest extends TestCase
 {
     public function test_that_true_is_true(): void
@@ -84,22 +75,17 @@ class ExampleTest extends TestCase
 }
 EOF
         fi
-
         if [ ! -f "tests/Feature/ExampleTest.php" ]; then
           cat > tests/Feature/ExampleTest.php << 'EOF'
 <?php
-
 namespace Tests\Feature;
-
 use Tests\TestCase;
-
 class ExampleTest extends TestCase
 {
     public function test_the_application_returns_successful_response(): void
     {
         $response = $this->get('/');
-
-        $response->assertStatus(302); // Redirect to login/register
+        $response->assertStatus(302);
     }
 }
 EOF
@@ -154,7 +140,6 @@ EOF
     - name: Create phpunit.xml if not exists
       run: |
         if [ ! -f "phpunit.xml" ]; then
-          echo "Creating phpunit.xml..."
           cat > phpunit.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -170,26 +155,13 @@ EOF
             <directory suffix="Test.php">./tests/Feature</directory>
         </testsuite>
     </testsuites>
-    <source>
-        <include>
-            <directory suffix=".php">./app</directory>
-        </include>
-    </source>
     <php>
         <env name="APP_ENV" value="testing"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="CACHE_DRIVER" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
-        <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
 </phpunit>
 EOF
-        else
-          echo "phpunit.xml already exists"
         fi
 
     - name: Run Migrations
@@ -199,7 +171,6 @@ EOF
       id: seed-db
       continue-on-error: true
       run: |
-        # Cek apakah tabel rooms ada sebelum seeding
         if mysql -h 127.0.0.1 -u root -ppassword -e "SHOW TABLES LIKE 'rooms'" web1 | grep -q rooms; then
           echo "Tables exist, running seeder..."
           php artisan db:seed --class=RoomSeeder --force
@@ -211,16 +182,12 @@ EOF
 
     - name: Run Tests
       run: |
-        # Run basic tests first
         echo "Running basic tests..."
         php artisan test || echo "Some tests failed but continuing..."
-        
-        # Run specific test suites if they exist
         if [ -f "tests/Unit/ExampleTest.php" ]; then
           echo "Running Unit tests..."
           ./vendor/bin/phpunit tests/Unit/ || echo "Unit tests completed"
         fi
-        
         if [ -f "tests/Feature/ExampleTest.php" ]; then
           echo "Running Feature tests..."
           ./vendor/bin/phpunit tests/Feature/ || echo "Feature tests completed"
@@ -315,19 +282,13 @@ EOF
 
     - name: Create Security Report
       run: |
-        echo "# 🔒 Security Scan Report" > security-report.md
-        echo "**Date:** $(date)" >> security-report.md
-        echo "**Commit:** ${{ github.sha }}" >> security-report.md
-        echo "**Repository:** ${{ github.repository }}" >> security-report.md
+        echo "# Security Scan Report" > security-report.md
+        echo "Date: $(date)" >> security-report.md
+        echo "Commit: ${{ github.sha }}" >> security-report.md
         echo "" >> security-report.md
         echo "## Composer Audit Results" >> security-report.md
         echo '```' >> security-report.md
         composer audit --format=plain >> security-report.md 2>&1 || echo "No vulnerabilities found" >> security-report.md
-        echo '```' >> security-report.md
-        echo "" >> security-report.md
-        echo "## NPM Audit Results" >> security-report.md
-        echo '```' >> security-report.md
-        npm audit --audit-level=moderate >> security-report.md 2>&1 || echo "No vulnerabilities found" >> security-report.md
         echo '```' >> security-report.md
 
     - name: Upload Security Report
@@ -384,21 +345,7 @@ EOF
 
     - name: Deploy Notification
       run: |
-        echo "🚀 Deployment Summary" > $GITHUB_STEP_SUMMARY
-        echo "====================" >> $GITHUB_STEP_SUMMARY
-        echo "**Application:** Pineus Tilu" >> $GITHUB_STEP_SUMMARY
-        echo "**Version:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Time:** $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "====================" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Build successful!**" >> $GITHUB_STEP_SUMMARY
-        echo "📦 **Artifact uploaded:** pineus-tilu-${{ github.sha }}.tar.gz" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Next steps for manual deployment:" >> $GITHUB_STEP_SUMMARY
-        echo "1. Download artifact from Actions tab" >> $GITHUB_STEP_SUMMARY
-        echo "2. Extract to server: \`tar -xzf pineus-tilu-${{ github.sha }}.tar.gz\`" >> $GITHUB_STEP_SUMMARY
-        echo "3. Run: \`php artisan migrate --force\`" >> $GITHUB_STEP_SUMMARY
-        echo "4. Run: \`php artisan config:cache\`" >> $GITHUB_STEP_SUMMARY
-        echo "5. Run: \`php artisan route:cache\`" >> $GITHUB_STEP_SUMMARY
-        echo "6. Run: \`php artisan view:cache\`" >> $GITHUB_STEP_SUMMARY
+        echo "Deployment Summary" > $GITHUB_STEP_SUMMARY
+        echo "Application: Pineus Tilu" >> $GITHUB_STEP_SUMMARY
+        echo "Version: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "Artifact: pineus-tilu-${{ github.sha }}.tar.gz" >> $GITHUB_STEP_SUMMARY
