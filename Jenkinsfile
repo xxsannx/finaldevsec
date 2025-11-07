@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     tools {
-        nodejs "NodeJS"  // Nama harus sama persis dengan yang di Jenkins
+        nodejs "NodeJS"
     }
     
     stages {
@@ -18,8 +18,31 @@ pipeline {
         
         stage('Verify') {
             steps {
-                // Tambahkan step verifikasi jika diperlukan
                 sh 'echo "Build completed successfully"'
+            }
+        }
+        
+        stage('Archive for Deployment') {
+            steps {
+                // Archive build directory
+                archiveArtifacts artifacts: 'dist/**/*', fingerprint: true
+                
+                // Create and archive tar.gz
+                sh 'tar -czf build-artifacts.tar.gz dist/'
+                archiveArtifacts artifacts: 'build-artifacts.tar.gz', fingerprint: true
+            }
+        }
+        
+        stage('Deploy Ready') {
+            steps {
+                sh '''
+                    echo "========================================"
+                    echo "📦 Artifacts Archived!"
+                    echo "Download from Jenkins Artifacts section"
+                    echo "Build: build-artifacts.tar.gz"
+                    echo "Or use direct dist/ files"
+                    echo "========================================"
+                '''
             }
         }
     }
@@ -29,10 +52,10 @@ pipeline {
             echo 'Pipeline execution completed'
         }
         success {
-            echo 'Pipeline succeeded!'
+            echo '✅ Pipeline succeeded! Artifacts ready for deployment.'
         }
         failure {
-            echo 'Pipeline failed!'
+            echo '❌ Pipeline failed!'
         }
     }
 }
