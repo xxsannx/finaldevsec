@@ -492,32 +492,4 @@ pipeline {
             echo "🔄 Pipeline status changed"
         }
     }
-
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 60, unit: 'MINUTES')
-        disableConcurrentBuilds()
-        retry(2)
-    }
-
-    parameters {
-        choice(
-            name: 'DEPLOY_ENVIRONMENT',
-            choices: ['staging', 'production'],
-            description: 'Select deployment environment',
-            defaultValue: 'staging'
-        )
-        
-        booleanParam(
-            name: 'RUN_FULL_ZAP_SCAN',
-            defaultValue: true,
-            description: 'Run full ZAP active scan (takes longer)'
-        )
-        
-        string(
-            name: 'CUSTOM_TARGET_URL',
-            defaultValue: '',
-            description: 'Custom target URL for security testing (optional)'
-        )
-    }
 }
