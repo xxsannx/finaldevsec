@@ -2,68 +2,92 @@ pipeline {
     agent any
 
     environment {
+        APP_ENV = 'production'
         COMPOSER_ALLOW_SUPERUSER = 1
     }
 
     stages {
-        stage('Install Dependencies') {
+        stage('Checkout') {
             steps {
-                echo 'Installing PHP dependencies...'
-                sh 'composer install --no-dev --optimize-autoloader'
+                checkout scm
             }
         }
 
-        stage('Build Assets') {
+        stage('Install PHP Dependencies') {
             steps {
-                echo 'Building frontend assets...'
-                sh 'npm install'
+                sh 'composer install --no-dev --optimize-autoloader --prefer-dist'
+            }
+        }
+
+        stage('Install Node Dependencies') {
+            when {
+                expression { fileExists('package.json') }
+            }
+            steps {
+                sh 'npm ci --silent'
                 sh 'npm run production'
             }
         }
 
         stage('Run Tests') {
-            steps {
-                echo 'Running Laravel tests...'
-                sh 'php artisan test'
-                sh './vendor/bin/phpunit'
+            parallel {
+                stage('PHPUnit Tests') {
+                    steps {
+                        sh 'php artisan test --stop-on-failure'
+                    }
+                }
+                stage('PHP Code Sniffer') {
+                    when {
+                        expression { fileExists('phpcs.xml') }
+                    }
+                    steps {
+                        sh './vendor/bin/phpcs'
+                    }
+                }
             }
             post {
                 always {
-                    junit 'storage/logs/junit.xml'
+                    junit 'tests/report.xml'
                 }
             }
         }
 
-        stage('Setup Environment') {
+        stage('Security Check') {
             steps {
-                echo 'Setting up environment...'
-                sh 'cp .env.example .env || true'
-                sh 'php artisan key:generate'
+                sh 'composer audit'
+                // Tambahkan security scanning tools lain
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
             steps {
-                echo 'Deploying Laravel application...'
-                // Ganti dengan deployment strategy Anda
-                sh '''
-                    mkdir -p /var/www/laravel-app
-                    cp -r * /var/www/laravel-app/
-                    chmod -R 755 /var/www/laravel-app/storage
-                    chmod -R 755 /var/www/laravel-app/bootstrap/cache
-                    echo "Application deployed successfully!"
-                '''
+                // Deployment steps untuk staging
+                echo 'Deploying to staging server...'
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                input message: 'Deploy to production?', ok: 'Deploy'
+                echo 'Deploying to production server...'
+                // Production deployment steps
             }
         }
     }
 
     post {
-        success {
-            echo 'Pipeline completed successfully!'
-            // Tambahkan notifikasi di sini (email, slack, dll)
-        }
-        failure {
-            echo 'Pipeline failed!'
+        always {
+            emailext (
+                subject: "Pipeline ${currentBuild.result}: Job ${env.JOB_NAME}",
+                body: "Check console output at: ${env.BUILD_URL}",
+                to: "team@example.com"
+            )
         }
     }
 }
