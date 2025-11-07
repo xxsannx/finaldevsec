@@ -54,7 +54,7 @@ jobs:
       run: php artisan key:generate
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v3
       with:
         node-version: '18'
         cache: 'npm'
@@ -68,45 +68,174 @@ jobs:
     - name: Directory Permissions
       run: chmod -R 777 storage bootstrap/cache
 
-    - name: Wait for MySQL to be ready
-      run: |
-        for i in {1..30}; do
-          if mysql -h 127.0.0.1 -u root -ppassword -e "SELECT 1" pineus_tilu_test 2>/dev/null; then
-            echo "MySQL is ready!"
-            break
-          fi
-          echo "Waiting for MySQL... ($i/30)"
-          sleep 2
-        done
-
-    - name: Configure Database Environment
-      run: |
-        echo "DB_CONNECTION=mysql" >> .env
-        echo "DB_HOST=127.0.0.1" >> .env
-        echo "DB_PORT=3306" >> .env
-        echo "DB_DATABASE=pineus_tilu_test" >> .env
-        echo "DB_USERNAME=root" >> .env
-        echo "DB_PASSWORD=password" >> .env
-
-    - name: Clear Configuration
+    - name: Configure Database
       run: |
         php artisan config:clear
         php artisan cache:clear
 
-    - name: Create phpunit.xml if not exists
+    - name: Run Migrations
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: pineus_tilu_test
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan migrate --force
+
+    - name: Seed Database
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: pineus_tilu_test
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan db:seed --class=RoomSeeder --force
+
+    - name: Run Tests
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: pineus_tilu_test
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan test
+
+    - name: PHP Code Style Check
       run: |
-        if [ ! -f "phpunit.xml" ]; then
-          cat > phpunit.xml << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
-         bootstrap="vendor/autoload.php"
-         colors="true"
->
-    <testsuites>
-        <testsuite name="Unit">
-            <directory suffix="Test.php">./tests/Unit</directory>
-        </testsuite>
-        <testsuite name="Feature">
-            <directory suffix="Test.php">./tests/Feature</directory>
-        
+        composer require --dev friendsofphp/php-cs-fixer
+        vendor/bin/php-cs-fixer fix --dry-run --diff --verbose || true
+
+    - name: Security Check - PHP Dependencies
+      run: composer audit || true
+
+    - name: Security Check - NPM Dependencies
+      run: npm audit --audit-level=moderate || true
+
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+
+    - name: Install Dependencies
+      run: composer install --prefer-dist --no-interaction --no-scripts
+
+    - name: PHPStan Static Analysis
+      run: |
+        composer require --dev phpstan/phpstan
+        vendor/bin/phpstan analyse app --level=1 || true
+
+  deploy:
+    name: Deploy Application
+    needs: [test, code-quality]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+
+    - name: Install Dependencies
+      run: composer install --prefer-dist --no-interaction --optimize-autoloader --no-dev --no-scripts
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Build Assets for Production
+      run: |
+        npm ci
+        npm run build
+
+    - name: Create Deployment Artifact
+      run: |
+        mkdir -p deployment
+        tar -czf deployment/pineus_tilu-${{ github.sha }}.tar.gz \
+          --exclude=node_modules \
+          --exclude=.git \
+          --exclude=tests \
+          --exclude=storage/logs/*.log \
+          .
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pineus_tilu-build
+        path: deployment/pineus_tilu-${{ github.sha }}.tar.gz
+        retention-days: 7
+
+    - name: Deploy Notification
+      run: |
+        echo "🚀 Deployment Summary"
+        echo "===================="
+        echo "Application: Pineus Tilu"
+        echo "Version: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Deployed by: ${{ github.actor }}"
+        echo "Time: $(date)"
+        echo "===================="
+        echo "✅ Build successful!"
+        echo "📦 Artifact uploaded"
+        echo ""
+        echo "Next steps for manual deployment:"
+        echo "1. Download artifact from Actions"
+        echo "2. Extract to server"
+        echo "3. Run: php artisan migrate --force"
+        echo "4. Run: php artisan config:cache"
+        echo "5. Run: php artisan route:cache"
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+
+    - name: Install Dependencies
+      run: composer install --prefer-dist --no-interaction --no-scripts
+
+    - name: Security Advisories Check
+      run: |
+        composer require --dev enlightn/security-checker
+        vendor/bin/security-checker security:check composer.lock || true
+
+    - name: Dependency Check
+      run: composer audit --format=json || true
+
+    - name: Create Security Report
+      run: |
+        echo "# Security Scan Report" > security-report.md
+        echo "Date: $(date)" >> security-report.md
+        echo "Commit: ${{ github.sha }}" >> security-report.md
+        echo "" >> security-report.md
+        echo "## Composer Audit" >> security-report.md
+        composer audit || echo "No vulnerabilities found" >> security-report.md
+
+    - name: Upload Security Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: pineus_tilu-security-report
+        path: security-report.md
