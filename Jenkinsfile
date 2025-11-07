@@ -39,14 +39,11 @@ pipeline {
         stage('Run Tests') {
             steps {
                 script {
-                    // Cek apakah phpunit tersedia
+                    // Check if PHPUnit is available via Composer
                     sh '''
                         if composer show phpunit/phpunit > /dev/null 2>&1; then
                             echo "Running PHPUnit tests..."
                             ./vendor/bin/phpunit
-                        elif php artisan list | grep -q make:test; then
-                            echo "Running Laravel tests..."
-                            php artisan make:test  // This is for creating a test, not running it
                         else
                             echo "No test framework detected, skipping tests"
                         fi
