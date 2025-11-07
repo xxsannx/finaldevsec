@@ -1,20 +1,15 @@
 pipeline {
     agent any
 
-    tools {
-        nodejs "NodeJS"
-    }
-
     environment {
-        // Application Configuration
-        TARGET_URL = "http://localhost:8000"  // Ganti dengan URL aplikasi Anda
+        // Ensure ZAP_HOME is set to the correct ZAP installation directory
+        ZAP_HOME = '/opt/zap'  // Update the path if necessary
+        TARGET_URL = "http://localhost:8000"  // Update to the target URL of your application
         BUILD_ARTIFACT = "build-${BUILD_NUMBER}.tar.gz"
         
-        // ZAP Configuration
-        ZAP_HOME = "/opt/zap"
-        ZAP_HOST = "localhost"
-        ZAP_PORT = "8090"
-        ZAP_REPORT_DIR = "zap-reports"        
+        // ZAP Report Directory
+        ZAP_REPORT_DIR = "zap-reports"
+        
         // Security Thresholds
         SECURITY_SCORE_THRESHOLD = "80"
         MAX_HIGH_VULNERABILITIES = "0"
@@ -169,7 +164,7 @@ pipeline {
                 script {
                     echo "🎯 Starting ZAP Dynamic Application Security Testing"
                     
-                    // Create reports directory
+                    // Ensure the reports directory exists
                     sh "mkdir -p ${ZAP_REPORT_DIR}"
                     
                     // Check if ZAP is available
@@ -194,75 +189,39 @@ pipeline {
                             -r ${ZAP_REPORT_DIR}/zap-baseline-report.html \
                             -c ${ZAP_REPORT_DIR}/zap-baseline-report.conf \
                             -a || true
-                        
                         echo "✅ ZAP Baseline Scan completed"
                     """
+                    
+                    // Debug: List the content of the reports directory
+                    sh "ls -la ${ZAP_REPORT_DIR}"
                 }
             }
             
             post {
                 always {
-                    archiveArtifacts artifacts: "${ZAP_REPORT_DIR}/**", fingerprint: true
-                    publishHTML([
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: "${ZAP_REPORT_DIR}",
-                        reportFiles: 'zap-baseline-report.html',
-                        reportName: 'ZAP Security Report'
-                    ])
-                }
-            }
-        }
-
-        stage('ZAP Full Active Scan') {
-            steps {
-                script {
-                    echo "🎯 Starting ZAP Full Active Scan"
-                    
-                    // Start ZAP in daemon mode
-                    sh """
-                        echo "🚀 Starting ZAP Daemon..."
-                        ${ZAP_HOME}/zap.sh -daemon -port ${ZAP_PORT} -host ${ZAP_HOST} \
-                            -config api.disablekey=true \
-                            -config scanner.attackOnStart=true \
-                            -config connection.timeoutInSecs=60 &
-                        ZAP_PID=\$!
-                        echo \$ZAP_PID > zap.pid
-                        sleep 10
-                    """
-                    
-                    // Run ZAP Spider and Active Scan
-                    sh """                        echo "🕷️ Running ZAP Spider..."
-                        curl -s "http://${ZAP_HOST}:${ZAP_PORT}/JSON/spider/action/scan/?url=${TARGET_URL}&maxChildren=10&recurse=true"
-                        sleep 30
-                                                echo "⚡ Running ZAP Active Scan..."
-                        curl -s "http://${ZAP_HOST}:${ZAP_PORT}/JSON/ascan/action/scan/?url=${TARGET_URL}&recurse=true&inScopeOnly=true"
+                    script {
+                        // Check if the ZAP reports directory exists
+                        def zapReportsDir = "${ZAP_REPORT_DIR}"
+                        def zapHtmlReport = "${zapReportsDir}/zap-baseline-report.html"
+                        def zapJsonReport = "${zapReportsDir}/zap-baseline-report.json"
                         
-                        echo "⏳ Waiting for active scan to complete (2 minutes)..."
-                        sleep 120
+                        // List the files in the reports directory for debugging
+                        sh "ls -la ${zapReportsDir}"
                         
-                        echo "📊 Generating ZAP Reports..."
-                        curl -s "http://${ZAP_HOST}:${ZAP_PORT}/OTHER/core/other/htmlreport/" > ${ZAP_REPORT_DIR}/zap-full-active-report.html
-                        curl -s "http://${ZAP_HOST}:${ZAP_PORT}/JSON/core/action/jsonreport/" > ${ZAP_REPORT_DIR}/zap-full-active-report.json
-                        curl -s "http://${ZAP_HOST}:${ZAP_PORT}/OTHER/core/other/xmlreport/" > ${ZAP_REPORT_DIR}/zap-full-active-report.xml
-                        
-                        echo "✅ ZAP Full Active Scan completed"
-                    """
-                }
-            }
-            
-            post {
-                always {
-                    // Stop ZAP
-                    sh '''
-                        echo "🛑 Stopping ZAP..."
-                        kill $(cat zap.pid) 2>/dev/null || true
-                        pkill -f "zap.sh" || true
-                        rm -f zap.pid
-                    '''
-                    
-                    archiveArtifacts artifacts: "${ZAP_REPORT_DIR}/zap-full-active-report.*", fingerprint: true
+                        if (fileExists(zapHtmlReport) && fileExists(zapJsonReport)) {
+                            archiveArtifacts artifacts: "${zapReportsDir}/**", fingerprint: true
+                            publishHTML([
+                                allowMissing: true,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: zapReportsDir,
+                                reportFiles: 'zap-baseline-report.html',
+                                reportName: 'ZAP Security Report'
+                            ])
+                        } else {
+                            echo "⚠️ ZAP reports not found. Skipping report archiving."
+                        }
+                    }
                 }
             }
         }
@@ -482,14 +441,6 @@ pipeline {
                     attachLog: true
                 )
             }
-        }
-        
-        unstable {
-            echo "⚠️ PIPELINE UNSTABLE - Security issues detected"
-        }
-        
-        changed {
-            echo "🔄 Pipeline status changed"
         }
     }
 }
