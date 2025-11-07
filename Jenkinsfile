@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     tools {
-        nodejs "Nodejs" // Pastikan sudah dikonfigurasi di Jenkins
+        nodejs "nodejs" // Pastikan sudah dikonfigurasi di Jenkins
     }
     
     stages {
