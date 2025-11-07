@@ -1,22 +1,22 @@
 pipeline {
     agent any
     
+    tools {
+        nodejs "NodeJS"  // Gunakan tools yang sudah dikonfigurasi
+    }
+    
     stages {
-        stage('Setup Node.js') {
+        stage('Verify Node.js') {
             steps {
-                script {
-                    sh '''
-                        # Install Node.js manually
-                        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-                        sudo apt-get install -y nodejs
-                        
-                        # Verify installation
-                        echo "Node.js version:"
-                        node --version
-                        echo "npm version:"
-                        npm --version
-                    '''
-                }
+                sh 'node --version'
+                sh 'npm --version'
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                echo 'Installing PHP dependencies...'
+                sh 'composer install --no-dev --optimize-autoloader'
             }
         }
         
@@ -28,6 +28,28 @@ pipeline {
             }
         }
         
-        // Stage lainnya...
+        stage('Setup Environment') {
+            steps {
+                echo 'Setting up environment...'
+                sh 'cp .env.example .env'
+                sh 'php artisan key:generate'
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                echo 'Running tests...'
+                sh 'php artisan test'
+            }
+        }
+    }
+    
+    post {
+        failure {
+            echo '❌ Pipeline failed!'
+        }
+        success {
+            echo '✅ Pipeline succeeded!'
+        }
     }
 }
