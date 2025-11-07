@@ -6,7 +6,6 @@ pipeline {
     }
     
     environment {
-        // Ganti dengan server Anda
         DEPLOY_SERVER = 'your-server.com'
         DEPLOY_PATH = '/var/www/web2'
         DEPLOY_USER = 'deploy-user'
@@ -43,19 +42,18 @@ pipeline {
                 echo '🏗️ Building frontend assets...'
                 sh 'npm run build'
             }
-}
+        }
         
         stage('Run Tests') {
             steps {
                 echo '🧪 Running tests...'
-
-            script {
+                script {
                     sh '''
                         # Check and run PHPUnit tests if available
                         if [ -f "vendor/bin/phpunit" ]; then
                             echo "Running PHPUnit tests..."
                             ./vendor/bin/phpunit
-                        elif composer show phpunit/phpunit > /dev/null 2>&1; then
+                        elif command -v composer > /dev/null && composer show phpunit/phpunit > /dev/null 2>&1; then
                             echo "Running PHPUnit tests..."
                             ./vendor/bin/phpunit
                         else
@@ -63,7 +61,7 @@ pipeline {
                         fi
                         
                         # Check and run npm tests if available
-                        if npm run | grep -q test; then
+                        if npm run | grep -q " test"; then
                             echo "Running npm tests..."
                             npm test
                         else
@@ -81,12 +79,18 @@ pipeline {
                     sh '''
                         # npm audit if available
                         if command -v npm > /dev/null; then
+                            echo "Running npm audit..."
                             npm audit --audit-level moderate || true
+                        else
+                            echo "npm not available for audit"
                         fi
                         
                         # composer security check if available
                         if command -v composer > /dev/null; then
+                            echo "Running composer audit..."
                             composer audit || true
+                        else
+                            echo "composer not available for audit"
                         fi
                     '''
                 }
@@ -100,10 +104,9 @@ pipeline {
             steps {
                 echo '🚀 Deploying to Staging...'
                 script {
-                    // Contoh deploy ke staging server
                     sh """
                         echo "Deploying to staging server..."
-                        # Tambahkan commands deploy staging di sini
+                        echo "Staging deployment would happen here"
                     """
                 }
             }
@@ -116,7 +119,10 @@ pipeline {
             steps {
                 echo '🎯 Deploying to Production...'
                 script {
-                    // Pilih salah satu metode deploy di bawah
+                    sh """
+                        echo "Production deployment would happen here"
+                        echo "Add your deployment commands here"
+                    """
                 }
             }
         }
@@ -126,20 +132,17 @@ pipeline {
         always {
             echo '🧹 Cleaning workspace...'
             cleanWs()
-            script {
-                // Archive artifacts jika diperlukan
-                archiveArtifacts artifacts: 'dist/**/*', fingerprint: true
-            }
+            // Archive artifacts tanpa script block
+            archiveArtifacts artifacts: 'dist/**/*', fingerprint: true
         }
         success {
             echo '✅ Pipeline completed successfully!'
-            // Slack/Email notification untuk success
         }
         failure {
             echo '❌ Pipeline failed!'
-            // Slack/Email notification untuk failure
         }
         unstable {
             echo '⚠️ Pipeline unstable!'
         }
-    }}
+    }
+}
