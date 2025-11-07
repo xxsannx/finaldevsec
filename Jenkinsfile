@@ -12,76 +12,116 @@ pipeline {
             }
         }
         
-        stage('Setup') {
+        stage('Debug Info') {
             steps {
-                sh 'node --version'
-                sh 'npm --version'
-                sh 'echo "Current directory structure:"'
-                sh 'ls -la'
+                sh '''
+                    echo "=== DEBUG INFORMATION ==="
+                    echo "Node version: $(node --version)"
+                    echo "NPM version: $(npm --version)"
+                    echo "Current directory: $(pwd)"
+                    echo "Directory contents:"
+                    ls -la
+                    echo "Package.json content:"
+                    cat package.json || echo "No package.json found"
+                    echo "=== END DEBUG ==="
+                '''
             }
         }
         
         stage('Install Dependencies') {
             steps {
                 sh 'npm install'
+                sh 'npm list --depth=0'  // Show installed dependencies
             }
         }
         
         stage('Build') {
             steps {
-                sh 'npm run build'
+                sh '''
+                    echo "Starting build process..."
+                    npm run build
+                    echo "Build command completed"
+                '''
             }
         }
         
-        stage('Verify Build') {
+        stage('Verify Build Output') {
             steps {
                 sh '''
-                    echo "=== Build Artifacts Verification ==="
-                    echo "Checking dist directory:"
-                    ls -la dist/ || echo "dist/ directory not found"
+                    echo "=== BUILD OUTPUT VERIFICATION ==="
+                    echo "Current directory after build:"
+                    pwd
                     echo ""
-                    echo "Checking build directory:"
-                    ls -la build/ || echo "build/ directory not found"
-                    echo ""
-                    echo "Current directory contents:"
+                    echo "Full directory structure:"
                     ls -la
-                    echo "=== Verification Complete ==="
+                    echo ""
+                    echo "Checking for common build directories:"
+                    echo "- dist/: $(ls -la dist/ 2>/dev/null && echo "EXISTS" || echo "NOT FOUND")"
+                    echo "- build/: $(ls -la build/ 2>/dev/null && echo "EXISTS" || echo "NOT FOUND")"
+                    echo "- public/: $(ls -la public/ 2>/dev/null && echo "EXISTS" || echo "NOT FOUND")"
+                    echo "- out/: $(ls -la out/ 2>/dev/null && echo "EXISTS" || echo "NOT FOUND")"
+                    echo "- .next/: $(ls -la .next/ 2>/dev/null && echo "EXISTS" || echo "NOT FOUND")"
+                    echo ""
+                    echo "Files created/modified recently:"
+                    find . -type f -mmin -5 -not -path "./node_modules/*" 2>/dev/null | head -20 || echo "No recent files found"
+                    echo "=== END VERIFICATION ==="
                 '''
             }
         }
         
         stage('Archive Artifacts') {
+            when {
+                expression { 
+                    // Hanya archive jika ada build directory
+                    return fileExists('dist') || fileExists('build') || fileExists('out') || fileExists('.next')
+                }
+            }
             steps {
                 script {
-                    // Cek direktori build yang ada
-                    def buildDir = ""
-                    if (fileExists('dist')) {
-                        buildDir = 'dist'
-                    } else if (fileExists('build')) {
-                        buildDir = 'build'
-                    } else {
-                        error "No build directory found! Check build process."
+                    // Cari direktori build yang tersedia
+                    def buildDirs = ['dist', 'build', 'out', '.next', 'public']
+                    def foundDir = null
+                    
+                    for (dir in buildDirs) {
+                        if (fileExists(dir)) {
+                            foundDir = dir
+                            break
+                        }
                     }
                     
-                    echo "Using build directory: ${buildDir}"
-                    
-                    // Create compressed archive
-                    sh """
-                        tar -czf build-${BUILD_NUMBER}.tar.gz ${buildDir}/
-                        echo "Archive created: build-${BUILD_NUMBER}.tar.gz"
-                        ls -la build-*.tar.gz
-                    """
-                    
-                    // Archive the build artifacts
-                    archiveArtifacts artifacts: "build-${BUILD_NUMBER}.tar.gz", fingerprint: true
-                    
-                    // Also archive the build directory directly untuk akses mudah
-                    archiveArtifacts artifacts: "${buildDir}/**/*", fingerprint: true
+                    if (foundDir) {
+                        echo "Found build directory: ${foundDir}"
+                        
+                        // Create compressed archive
+                        sh """
+                            tar -czf build-${BUILD_NUMBER}.tar.gz ${foundDir}/
+                            echo "Archive created: build-${BUILD_NUMBER}.tar.gz"
+                            ls -la build-*.tar.gz
+                        """
+                        
+                        // Archive the build artifacts
+                        archiveArtifacts artifacts: "build-${BUILD_NUMBER}.tar.gz", fingerprint: true
+                        archiveArtifacts artifacts: "${foundDir}/**/*", fingerprint: true
+                    } else {
+                        echo "WARNING: No standard build directory found. Archiving all non-node_modules files..."
+                        
+                        // Archive semua file kecuali node_modules
+                        sh """
+                            tar -czf build-${BUILD_NUMBER}.tar.gz --exclude='node_modules' --exclude='.git' .
+                            echo "Full project archive created: build-${BUILD_NUMBER}.tar.gz"
+                        """
+                        archiveArtifacts artifacts: "build-${BUILD_NUMBER}.tar.gz", fingerprint: true
+                    }
                 }
             }
         }
         
         stage('Deploy - Manual Step') {
+            when {
+                expression { 
+                    fileExists('dist') || fileExists('build') || fileExists('out') || fileExists('.next')
+                }
+            }
             steps {
                 sh '''
                     echo "=========================================="
@@ -90,18 +130,10 @@ pipeline {
                     echo "Build Number: ${BUILD_NUMBER}"
                     echo "Archive: build-${BUILD_NUMBER}.tar.gz"
                     echo ""
-                    echo "📦 Download artifacts from:"
-                    echo "   Jenkins → Build → Artifacts"
-                    echo ""
-                    echo "🔧 Manual deployment steps:"
-                    echo "   1. Download build-${BUILD_NUMBER}.tar.gz"
-                    echo "   2. Extract: tar -xzf build-${BUILD_NUMBER}.tar.gz"
-                    echo "   3. Deploy files to your server"
+                    echo "📦 Download artifacts from Jenkins Artifacts"
+                    echo "🔧 Ready for manual deployment"
                     echo "=========================================="
                 '''
-                
-                // Optional: Tambahkan input manual untuk deploy
-                input message: 'Deploy to production?', ok: 'Deploy'
             }
         }
     }
@@ -117,37 +149,18 @@ pipeline {
             '''
         }
         success {
-            echo "✅ Build #${BUILD_NUMBER} succeeded! Artifacts are archived and ready for deployment."
-            
-            // Optional: Add notification
-            emailext (
-                subject: "SUCCESS: Build #${BUILD_NUMBER} - Ready for Deployment",
-                body: """
-                Build #${BUILD_NUMBER} completed successfully!
-                
-                Artifacts available at:
-                ${BUILD_URL}artifact/
-                
-                Download: build-${BUILD_NUMBER}.tar.gz
-                
-                Ready for manual deployment.
-                """,
-                to: "your-email@company.com"
-            )
+            echo "✅ Build #${BUILD_NUMBER} succeeded!"
         }
         failure {
-            echo "❌ Build #${BUILD_NUMBER} failed! Check logs for details."
-            
-            // Optional: Add failure notification
-            emailext (
-                subject: "FAILED: Build #${BUILD_NUMBER}",
-                body: """
-                Build #${BUILD_NUMBER} failed!
-                
-                Please check: ${BUILD_URL}
-                """,
-                to: "your-email@company.com"
-            )
+            echo "❌ Build #${BUILD_NUMBER} failed!"
+            sh '''
+                echo "=== TROUBLESHOOTING TIPS ==="
+                echo "1. Check if npm run build produces any output"
+                echo "2. Verify build script in package.json"
+                echo "3. Check if dependencies are installed correctly"
+                echo "4. Look for build errors in the logs above"
+                echo "============================"
+            '''
         }
     }
 }
