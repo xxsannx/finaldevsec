@@ -1,4 +1,4 @@
-name: Laravel CI/CD Pipeline
+name: Pineus Tilu CI/CD Pipeline
 
 on:
   push:
@@ -16,14 +16,14 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: web1
+          MYSQL_DATABASE: pineus_tilu_test
         ports:
           - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -37,7 +37,7 @@ jobs:
       run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
 
     - name: Cache Composer dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ${{ steps.composer-cache.outputs.dir }}
         key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
@@ -78,7 +78,7 @@ jobs:
         DB_CONNECTION: mysql
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
-        DB_DATABASE: web1
+        DB_DATABASE: pineus_tilu_test
         DB_USERNAME: root
         DB_PASSWORD: password
       run: php artisan migrate --force
@@ -88,7 +88,7 @@ jobs:
         DB_CONNECTION: mysql
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
-        DB_DATABASE: web1
+        DB_DATABASE: pineus_tilu_test
         DB_USERNAME: root
         DB_PASSWORD: password
       run: php artisan db:seed --class=RoomSeeder --force
@@ -98,7 +98,7 @@ jobs:
         DB_CONNECTION: mysql
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
-        DB_DATABASE: web1
+        DB_DATABASE: pineus_tilu_test
         DB_USERNAME: root
         DB_PASSWORD: password
       run: php artisan test
@@ -166,7 +166,7 @@ jobs:
     - name: Create Deployment Artifact
       run: |
         mkdir -p deployment
-        tar -czf deployment/bobobox-${{ github.sha }}.tar.gz \
+        tar -czf deployment/pineus_tilu-${{ github.sha }}.tar.gz \
           --exclude=node_modules \
           --exclude=.git \
           --exclude=tests \
@@ -174,17 +174,17 @@ jobs:
           .
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: bobobox-build
-        path: deployment/bobobox-${{ github.sha }}.tar.gz
+        name: pineus_tilu-build
+        path: deployment/pineus_tilu-${{ github.sha }}.tar.gz
         retention-days: 7
 
     - name: Deploy Notification
       run: |
         echo "🚀 Deployment Summary"
         echo "===================="
-        echo "Application: Bobobox Clone"
+        echo "Application: Pineus Tilu"
         echo "Version: ${{ github.sha }}"
         echo "Branch: ${{ github.ref_name }}"
         echo "Deployed by: ${{ github.actor }}"
@@ -237,5 +237,5 @@ jobs:
     - name: Upload Security Report
       uses: actions/upload-artifact@v4
       with:
-        name: security-report
+        name: pineus_tilu-security-report
         path: security-report.md
