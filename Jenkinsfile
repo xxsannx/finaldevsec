@@ -419,7 +419,7 @@ pipeline {
                     
                     Build: ${BUILD_URL}
                     """,
-                    to: "dev-team@company.com",
+                    to: "zainul.ariffinihsan@gmail.com",
                     attachLog: true
                 )
             }
