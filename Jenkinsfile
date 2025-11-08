@@ -339,15 +339,16 @@ pipeline {
         stage('Package & Archive') {
             steps {
                 sh """
-                    echo "📦 Packaging application..."
-                    tar -czf ${BUILD_ARTIFACT} --exclude='node_modules' --exclude='.git' .
-                    echo "✅ Package created: ${BUILD_ARTIFACT}"
-                """
-                
-                archiveArtifacts artifacts: "*.tar.gz", fingerprint: true
-                archiveArtifacts artifacts: "**/*-report.*", fingerprint: true
-            }
+                echo "📦 Packaging application..."
+                mkdir -p build
+                tar -czf build/${BUILD_ARTIFACT} --exclude='node_modules' --exclude='.git' --exclude='build' .
+            echo "✅ Package created: build/${BUILD_ARTIFACT}"
+        """
+        
+            archiveArtifacts artifacts: "build/*.tar.gz", fingerprint: true
+            archiveArtifacts artifacts: "**/*-report.*", fingerprint: true
         }
+    }
 
         stage('Deploy - Security Approved') {
             when {
