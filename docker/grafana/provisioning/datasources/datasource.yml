@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus-ds
+    url: http://prometheus:9090 # Mengarah ke service Prometheus di Docker Compose
+    access: proxy
+    isDefault: true
+    orgId: 1
+    version: 1
+    editable: true
