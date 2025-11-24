@@ -1,7 +1,6 @@
 # --- Stage 1: Base Image (OS and PHP Extensions) ---
 FROM php:8.1-fpm-alpine as base
-
-# Install OS dependencies required by Laravel and PHP extensions
+# ... (Instalasi dependencies OS dan PHP tetap sama) ...
 RUN apk add --no-cache \
     git \
     curl \
@@ -12,40 +11,34 @@ RUN apk add --no-cache \
     postgresql-dev \
     mariadb-client \
     nginx \
-    # Build Dependencies untuk GD (libpng, libjpeg, freetype)
     libpng-dev \
     libjpeg-turbo-dev \
     freetype-dev \
-    # Clean up (penting untuk production)
     && rm -rf /var/cache/apk/*
 
-# Install PHP extensions required by Laravel
 RUN docker-php-ext-install -j$(nproc) \
     pdo pdo_mysql opcache bcmath exif pcntl zip intl
 
-# Install GD dengan dukungan Freetype dan JPEG
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) gd
 
-# Set working directory
 WORKDIR /var/www/html
 
-# --- Stage 2: Dependency Installation ---
+# --- Stage 2: Dependency Installation (Copy Seluruh Proyek) ---
 FROM base as dependencies
 
-# Install Composer
+# Install Composer dan Node.js/NPM
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# Install Node.js and NPM
 RUN apk add --no-cache nodejs npm
 
-# Copy composer files AND the artisan script
-COPY composer.json composer.lock ./
-COPY artisan ./ # <--- INI PERBAIKANNYA: Salin file Artisan
+# Menyalin SELURUH Proyek ke dalam container dependencies
+# Ini memastikan file artisan dan struktur app/ config/ tersedia
+COPY . . 
+
+# Instalasi PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# Copy package files and install JS dependencies
-COPY package.json package-lock.json ./
+# Instalasi JS dependencies
 RUN npm install
 RUN npm run dev 
 
@@ -61,15 +54,12 @@ COPY --from=dependencies /var/www/html/node_modules /var/www/html/node_modules
 COPY --from=dependencies /var/www/html/public/js /var/www/html/public/js
 COPY --from=dependencies /var/www/html/public/css /var/www/html/public/css
 
-# Set permissions
+# Set permissions dan User
 RUN chown -R www-data:www-data /var/www/html
 RUN chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# User for running application
 USER www-data
 
-# Expose port (asumsi FPM)
 EXPOSE 9000
 
-# Start PHP-FPM
 CMD ["php-fpm"]
