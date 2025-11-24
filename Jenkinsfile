@@ -8,6 +8,7 @@ pipeline {
         DOCKER_CREDENTIALS = 'docker-hub-credentials' 
         
         // --- Konfigurasi Image & URL ---
+        // Image ini sekarang dibuat di Stage 1 dan memiliki vendor/ dan node_modules/
         DOCKER_IMAGE = "xxsamx/laravel-devsecops:${env.BUILD_ID}" 
         STAGING_URL = "http://nginx:80" 
         DOCKER_NETWORK = "finaldevsec_pineus_network" 
@@ -15,38 +16,30 @@ pipeline {
     }
 
     stages {
-        // 1. DEVELOPMENT & BUILD SETUP - DIAGNOSTIK VOLUME
-        stage('Code Checkout & Install Dependencies') {
+        // 1. BUILD & INSTALL DEPENDENCIES (MENGATASI MASALAH VOLUME)
+        stage('Build & Install Dependencies') {
             steps {
                 echo "Checking out code from GitHub: https://github.com/xxsannx/finaldevsec.git"
                 // 1. Checkout Code
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
                 
-                // --- DIAGNOSTIK VOLUME: Cek apakah file terlihat di dalam container ---
-                echo "Running diagnostic check inside the container..."
-                // Jalankan ls -la /app menggunakan container composer
-                sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app composer ls -la /app"
+                echo "Running Multi-Stage Docker Build to install dependencies inside the image..."
                 
-                // 2. Install PHP Dependencies (Composer)
-                echo "Installing PHP dependencies (Composer)..."
-                // Perintah composer yang gagal sebelumnya
-                sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app composer install --ignore-platform-reqs"
-                
-                // 3. Install Node.js Dependencies (NPM)
-                echo "Installing Node.js dependencies (NPM) using node:lts-alpine container..."
-                sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app node:lts-alpine npm install"
-                
-                // 4. Compile Assets (Laravel Mix/Vite)
-                echo "Compiling front-end assets (npm run dev)..."
-                sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app node:lts-alpine npm run dev"
+                script {
+                    // Gunakan docker.build() untuk membangun image. Image ini akan menjadi $DOCKER_IMAGE
+                    docker.withRegistry('https://registry.hub.docker.com', DOCKER_CREDENTIALS) {
+                        // Perintah build ini akan menjalankan semua instalasi dependensi
+                        docker.build(DOCKER_IMAGE, "-f Dockerfile .")
+                        echo "Image built successfully: ${DOCKER_IMAGE}"
+                    }
+                }
             }
         }
         
-        // 2. DEPENDENCY SCAN (Tool: OWASP Dependency-Check)
-        // ... (Tahap 2 dan seterusnya tetap sama)
+        // 2. DEPENDENCY SCAN (OWASP DC - Memindai file lock)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
-                echo "Running OWASP Dependency-Check scan..."
+                echo "Running OWASP Dependency-Check scan on lock files..."
                 
                 sh "mkdir -p dependency-check-report"
                 
@@ -55,16 +48,16 @@ pipeline {
                         -v "${WORKSPACE}":/scan \
                         -v "${WORKSPACE}/dependency-check-report":/report \
                         owasp/dependency-check:v${DC_VERSION} \
-                        --scan /scan \
+                        --scan /scan/composer.lock /scan/package-lock.json \
                         --format HTML \
                         --out /report \
                         --project "Laravel DevSecOps"
                 """
-                
                 echo "OWASP Dependency-Check selesai. Laporan disimpan di dependency-check-report/report.html"
             }
         }
 
+        // 3. CODE QUALITY & SAST (SonarQube) - Masih bisa dilakukan pada source code yang sudah dicheckout.
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 echo "Running SonarQube static analysis..."
@@ -80,18 +73,21 @@ pipeline {
             }
         }
         
-        stage('Docker Image Build and Push') {
+        // 4. PUSH ARTIFACT (Docker Push)
+        // Cukup Push karena sudah di-build di Stage 1
+        stage('Docker Image Push') {
             steps {
-                echo "Building and pushing Docker image..."
+                echo "Pushing Docker image..."
                 script {
                     docker.withRegistry('https://registry.hub.docker.com', DOCKER_CREDENTIALS) {
-                        docker.build(DOCKER_IMAGE).push() 
-                        echo "Docker Image Built and Pushed: ${DOCKER_IMAGE}"
+                        docker.image(DOCKER_IMAGE).push() 
+                        echo "Docker Image Pushed: ${DOCKER_IMAGE}"
                     }
                 }
             }
         }
         
+        // 5. TRAFFIC GENERATION (Locust)
         stage('Traffic Generation (Locust)') {
             steps {
                 echo "Starting Load Test using Locust for 60 seconds (50 users)..."
@@ -113,6 +109,7 @@ pipeline {
             }
         }
         
+        // 6. DAST Scan (OWASP ZAP)
         stage('DAST Scan (OWASP ZAP)') {
             steps {
                 echo "Running OWASP ZAP DAST scan against ${STAGING_URL}..."
@@ -120,6 +117,7 @@ pipeline {
             }
         }
         
+        // 7. RELEASE/DEPLOY FINAL
         stage('Final Deploy to Production') {
             when {
                 expression {

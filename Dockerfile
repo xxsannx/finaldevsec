@@ -1,53 +1,54 @@
-FROM php:8.3-fpm
+FROM php:8.1-fpm-alpine as base
 
-# Set working directory
-WORKDIR /var/www
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install common dependencies
+RUN apk add --no-cache \
     git \
     curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    zip \
     unzip \
-    nodejs \
-    npm
-
-# Clear cache
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+    libxml2-dev \
+    ... # pastikan semua dependensi PHP ada di sini
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+RUN docker-php-ext-install pdo pdo_mysql opcache
+
+# Set working directory
+WORKDIR /var/www/html
+
+# --- Stage 1: Dependency Installation ---
+FROM base as dependencies
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Copy existing application directory
-COPY . /var/www
+# Install Node.js and NPM (via nvm or direct install for Alpine)
+# Menggunakan cara sederhana untuk Alpine
+RUN apk add --no-cache nodejs npm
 
-# Copy existing application directory permissions
-COPY --chown=www-data:www-data . /var/www
+# Copy composer files and install PHP dependencies
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Copy package files and install JS dependencies
+COPY package.json package-lock.json ./
+RUN npm install
+RUN npm run build # Compile assets
 
-# Install Node dependencies and build assets
-RUN npm install && npm run build
+# --- Stage 2: Final Production Image ---
+FROM base as final
 
-# Create necessary directories
-RUN mkdir -p /var/www/storage/framework/sessions \
-    /var/www/storage/framework/views \
-    /var/www/storage/framework/cache \
-    /var/www/storage/logs
+# Copy application code
+COPY . .
+
+# Copy installed dependencies from the 'dependencies' stage
+COPY --from=dependencies /var/www/html/vendor /var/www/html/vendor
+COPY --from=dependencies /var/www/html/node_modules /var/www/html/node_modules
+COPY --from=dependencies /var/www/html/public /var/www/html/public 
 
 # Set permissions
-RUN chown -R www-data:www-data /var/www \
-    && chmod -R 755 /var/www/storage \
-    && chmod -R 755 /var/www/bootstrap/cache
+RUN chown -R www-data:www-data /var/www/html
 
-# Expose port 9000
+# Expose port (asumsi FPM)
 EXPOSE 9000
 
+# Start PHP-FPM
 CMD ["php-fpm"]
