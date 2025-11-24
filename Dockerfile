@@ -1,6 +1,6 @@
 # --- Stage 1: Base Image (OS and PHP Extensions) ---
 FROM php:8.1-fpm-alpine as base
-# ... (Kode Stage 1 tetap sama: Instalasi OS dependencies dan PHP extensions) ...
+# ... (Kode Stage 1 tetap sama) ...
 RUN apk add --no-cache \
     git \
     curl \
@@ -39,19 +39,21 @@ RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
 # Instalasi JS dependencies
 RUN npm install
-RUN npm run build # <--- PERBAIKAN: Mengganti 'npm run dev' menjadi 'npm run build'
+RUN npm run build # Mengompilasi asset statis ke public/build
 
-# --- Stage 3: Final Production Image ---
+# --- Stage 3: Final Production Image (Fix COPY paths) ---
 FROM base as final
 
 # Copy application code
 COPY . .
 
-# Copy installed dependencies and compiled assets from the 'dependencies' stage
+# Copy installed dependencies
 COPY --from=dependencies /var/www/html/vendor /var/www/html/vendor
 COPY --from=dependencies /var/www/html/node_modules /var/www/html/node_modules
-COPY --from=dependencies /var/www/html/public/js /var/www/html/public/js
-COPY --from=dependencies /var/www/html/public/css /var/www/html/public/css
+
+# COPY Aset Vite (public/build) dan manifest.json
+COPY --from=dependencies /var/www/html/public/build /var/www/html/public/build
+COPY --from=dependencies /var/www/html/public/hot /var/www/html/public/hot # Hanya untuk berjaga-jaga
 
 # Set permissions dan User
 RUN chown -R www-data:www-data /var/www/html
