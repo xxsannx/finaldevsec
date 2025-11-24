@@ -15,31 +15,35 @@ pipeline {
     }
 
     stages {
-        // 1. DEVELOPMENT & BUILD SETUP - FIX VOLUME MOUNTING
+        // 1. DEVELOPMENT & BUILD SETUP - DIAGNOSTIK VOLUME
         stage('Code Checkout & Install Dependencies') {
             steps {
                 echo "Checking out code from GitHub: https://github.com/xxsannx/finaldevsec.git"
                 // 1. Checkout Code
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
                 
-                // Variabel lingkungan Jenkins $WORKSPACE harus selalu dievaluasi 
-                // sebagai path host yang benar oleh Jenkins sebelum perintah sh dijalankan.
+                // --- DIAGNOSTIK VOLUME: Cek apakah file terlihat di dalam container ---
+                echo "Running diagnostic check inside the container..."
+                // Jalankan ls -la /app menggunakan container composer
+                sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app composer ls -la /app"
                 
                 // 2. Install PHP Dependencies (Composer)
                 echo "Installing PHP dependencies (Composer)..."
+                // Perintah composer yang gagal sebelumnya
                 sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app composer install --ignore-platform-reqs"
                 
-                // 3. Install Node.js Dependencies (NPM) - MENGGUNAKAN $WORKSPACE
+                // 3. Install Node.js Dependencies (NPM)
                 echo "Installing Node.js dependencies (NPM) using node:lts-alpine container..."
                 sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app node:lts-alpine npm install"
                 
-                // 4. Compile Assets (Laravel Mix/Vite) - MENGGUNAKAN $WORKSPACE
+                // 4. Compile Assets (Laravel Mix/Vite)
                 echo "Compiling front-end assets (npm run dev)..."
                 sh "docker run --rm -v \"${WORKSPACE}\":/app -w /app node:lts-alpine npm run dev"
             }
         }
         
         // 2. DEPENDENCY SCAN (Tool: OWASP Dependency-Check)
+        // ... (Tahap 2 dan seterusnya tetap sama)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
                 echo "Running OWASP Dependency-Check scan..."
@@ -61,8 +65,6 @@ pipeline {
             }
         }
 
-        // 3. CODE QUALITY & SAST (Tool: SonarQube)
-        // ... (Tahap 3 dan seterusnya tetap sama, pastikan juga menggunakan "${WORKSPACE}" untuk konsistensi) ...
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 echo "Running SonarQube static analysis..."
