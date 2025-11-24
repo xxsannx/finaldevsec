@@ -15,7 +15,7 @@ pipeline {
     }
 
     stages {
-        // ... (Stage 1: Build & Install Dependencies - Dinyatakan Berhasil)
+        // ... (Stage 1: Build & Install Dependencies)
         stage('Build & Install Dependencies') {
             steps {
                 echo "Checking out code from GitHub: https://github.com/xxsannx/finaldevsec.git"
@@ -33,7 +33,7 @@ pipeline {
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Mengganti Bind Mount)
+        // 2. DEPENDENCY SCAN (OWASP DC - Menambahkan -n)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
                 echo "Running OWASP Dependency-Check scan on lock files..."
@@ -42,11 +42,9 @@ pipeline {
                 
                 script {
                     // 1. Jalankan container sementara dari image yang sudah di-build
-                    // Ini memungkinkan kita menyalin file dari dalamnya
                     sh "docker run --name temp_scanner -d ${DOCKER_IMAGE} sleep 30"
                     
                     // 2. Salin file lock dari container ke WORKSPACE Jenkins
-                    // File kini ada di: ${WORKSPACE}/composer.lock dan ${WORKSPACE}/package-lock.json
                     sh "docker cp temp_scanner:/var/www/html/composer.lock ."
                     sh "docker cp temp_scanner:/var/www/html/package-lock.json ."
                     
@@ -55,7 +53,7 @@ pipeline {
                     sh "docker rm temp_scanner"
                 }
 
-                // 4. Jalankan scan dengan mounting file secara SPESIFIK ke /scan/filename
+                // 4. Jalankan scan dengan mounting file secara SPESIFIK dan menambahkan -n
                 sh """
                     docker run --rm \
                         -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
@@ -65,7 +63,8 @@ pipeline {
                         --scan /scan/composer.lock /scan/package-lock.json \
                         --format HTML \
                         --out /report \
-                        --project "Laravel DevSecOps"
+                        --project "Laravel DevSecOps" \
+                        -n 
                 """
                 
                 // Hapus file lock yang dicopy agar tidak mengganggu checkout berikutnya
