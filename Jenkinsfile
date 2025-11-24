@@ -11,7 +11,6 @@ pipeline {
         DOCKER_IMAGE = "xxsamx/laravel-devsecops:${env.BUILD_ID}" 
         STAGING_URL = "http://nginx:80" 
         DOCKER_NETWORK = "finaldevsec_pineus_network" 
-        // Menggunakan versi yang kemungkinan besar benar (tanpa 'v')
         DC_VERSION = '9.0.8' 
     }
 
@@ -34,14 +33,29 @@ pipeline {
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Memperbaiki Tag Image)
+        // 2. DEPENDENCY SCAN (OWASP DC - Memperbaiki Akses File)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
                 echo "Running OWASP Dependency-Check scan on lock files..."
                 
                 sh "mkdir -p dependency-check-report"
                 
-                // MENGGANTI: Menggunakan ${DC_VERSION} secara langsung, mengasumsikan tagnya 9.0.8 (BUKAN v9.0.8)
+                script {
+                    // 1. Jalankan container sementara dari image yang sudah di-build
+                    // Ini memungkinkan kita menyalin file dari dalamnya
+                    sh "docker run --name temp_scanner -d ${DOCKER_IMAGE} sleep 30"
+                    
+                    // 2. Salin file lock dari container ke WORKSPACE Jenkins
+                    sh "docker cp temp_scanner:/var/www/html/composer.lock ."
+                    sh "docker cp temp_scanner:/var/www/html/package-lock.json ."
+                    
+                    // 3. Hentikan dan hapus container sementara
+                    sh "docker stop temp_scanner"
+                    sh "docker rm temp_scanner"
+                }
+
+                // 4. Jalankan scan pada file yang SEKARANG ada di WORKSPACE Jenkins
+                // Kita menggunakan volume bind mount yang sama, tetapi kali ini kita memindai file yang dicopy ke host, BUKAN yang dicheckout.
                 sh """
                     docker run --rm \
                         -v "${WORKSPACE}":/scan \
@@ -52,6 +66,10 @@ pipeline {
                         --out /report \
                         --project "Laravel DevSecOps"
                 """
+                
+                // Hapus file lock yang dicopy agar tidak mengganggu checkout berikutnya
+                sh "rm composer.lock package-lock.json" 
+                
                 echo "OWASP Dependency-Check selesai. Laporan disimpan di dependency-check-report/report.html"
             }
         }
