@@ -39,9 +39,9 @@ RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
 # Instalasi JS dependencies
 RUN npm install
-RUN npm run build # Mengompilasi asset statis ke public/build
+RUN npm run build 
 
-# --- Stage 3: Final Production Image (Fix COPY paths) ---
+# --- Stage 3: Final Production Image (Bersihkan COPY paths) ---
 FROM base as final
 
 # Copy application code
@@ -51,9 +51,8 @@ COPY . .
 COPY --from=dependencies /var/www/html/vendor /var/www/html/vendor
 COPY --from=dependencies /var/www/html/node_modules /var/www/html/node_modules
 
-# COPY Aset Vite (public/build) dan manifest.json
+# COPY Aset Vite (public/build)
 COPY --from=dependencies /var/www/html/public/build /var/www/html/public/build
-COPY --from=dependencies /var/www/html/public/hot /var/www/html/public/hot # Hanya untuk berjaga-jaga
 
 # Set permissions dan User
 RUN chown -R www-data:www-data /var/www/html
