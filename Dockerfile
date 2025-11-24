@@ -2,7 +2,7 @@
 FROM php:8.1-fpm-alpine as base
 
 # Install OS dependencies required by Laravel and PHP extensions
-# Menggunakan -j$(nproc) untuk instalasi ekstensi paralel (lebih cepat)
+# Tambahkan -dev dependencies untuk kompilasi ekstensi PHP
 RUN apk add --no-cache \
     git \
     curl \
@@ -12,11 +12,22 @@ RUN apk add --no-cache \
     icu-dev \
     postgresql-dev \
     mariadb-client \
-    nginx # Nginx ditambahkan jika Anda akan menjalankannya di container yang sama (meski biasanya di container terpisah)
+    nginx \
+    # Build Dependencies untuk GD (libpng, libjpeg, freetype)
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    # Clean up (penting untuk production)
+    && rm -rf /var/cache/apk/*
 
-# Install PHP extensions required by Laravel (termasuk yang populer seperti zip, gd, bcmath)
+# Install PHP extensions required by Laravel
+# Install ekstensi dasar
 RUN docker-php-ext-install -j$(nproc) \
-    pdo pdo_mysql opcache bcmath exif pcntl zip gd intl
+    pdo pdo_mysql opcache bcmath exif pcntl zip intl
+
+# Install GD dengan dukungan Freetype dan JPEG
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) gd
 
 # Set working directory
 WORKDIR /var/www/html
