@@ -1,6 +1,6 @@
 # --- Stage 1: Base Image (OS and PHP Extensions) ---
 FROM php:8.1-fpm-alpine as base
-# ... (Instalasi dependencies OS dan PHP tetap sama) ...
+# ... (Kode Stage 1 tetap sama: Instalasi OS dependencies dan PHP extensions) ...
 RUN apk add --no-cache \
     git \
     curl \
@@ -32,7 +32,6 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 RUN apk add --no-cache nodejs npm
 
 # Menyalin SELURUH Proyek ke dalam container dependencies
-# Ini memastikan file artisan dan struktur app/ config/ tersedia
 COPY . . 
 
 # Instalasi PHP dependencies
@@ -40,7 +39,7 @@ RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
 # Instalasi JS dependencies
 RUN npm install
-RUN npm run dev 
+RUN npm run build # <--- PERBAIKAN: Mengganti 'npm run dev' menjadi 'npm run build'
 
 # --- Stage 3: Final Production Image ---
 FROM base as final
