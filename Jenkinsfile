@@ -33,7 +33,7 @@ pipeline {
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Mengaktifkan Caching dan Hapus -n)
+        // 2. DEPENDENCY SCAN (OWASP DC - Mengaktifkan Caching dan Menambahkan Kembali -n)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
                 echo "Running OWASP Dependency-Check scan on lock files..."
@@ -53,8 +53,7 @@ pipeline {
                     sh "docker rm temp_scanner"
                 }
 
-                // 4. Jalankan scan. Argumen -n Dihapus untuk mengizinkan download.
-                // Volume dcheck-data-cache akan menyimpan database.
+                // 4. Jalankan scan. Argumen -n (Noupdate) ditambahkan kembali untuk memaksa penggunaan database yang ada.
                 sh """
                     docker run --rm \
                         -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
@@ -65,7 +64,8 @@ pipeline {
                         --scan /scan/composer.lock /scan/package-lock.json \
                         --format HTML \
                         --out /report \
-                        --project "Laravel DevSecOps"
+                        --project "Laravel DevSecOps" \
+                        -n
                 """
                 
                 // Hapus file lock yang dicopy agar tidak mengganggu checkout berikutnya
