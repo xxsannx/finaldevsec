@@ -33,7 +33,7 @@ pipeline {
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Memperbaiki Akses File)
+        // 2. DEPENDENCY SCAN (OWASP DC - Mengganti Bind Mount)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
                 echo "Running OWASP Dependency-Check scan on lock files..."
@@ -46,6 +46,7 @@ pipeline {
                     sh "docker run --name temp_scanner -d ${DOCKER_IMAGE} sleep 30"
                     
                     // 2. Salin file lock dari container ke WORKSPACE Jenkins
+                    // File kini ada di: ${WORKSPACE}/composer.lock dan ${WORKSPACE}/package-lock.json
                     sh "docker cp temp_scanner:/var/www/html/composer.lock ."
                     sh "docker cp temp_scanner:/var/www/html/package-lock.json ."
                     
@@ -54,11 +55,11 @@ pipeline {
                     sh "docker rm temp_scanner"
                 }
 
-                // 4. Jalankan scan pada file yang SEKARANG ada di WORKSPACE Jenkins
-                // Kita menggunakan volume bind mount yang sama, tetapi kali ini kita memindai file yang dicopy ke host, BUKAN yang dicheckout.
+                // 4. Jalankan scan dengan mounting file secara SPESIFIK ke /scan/filename
                 sh """
                     docker run --rm \
-                        -v "${WORKSPACE}":/scan \
+                        -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
+                        -v "${WORKSPACE}/package-lock.json":/scan/package-lock.json \
                         -v "${WORKSPACE}/dependency-check-report":/report \
                         owasp/dependency-check:${DC_VERSION} \
                         --scan /scan/composer.lock /scan/package-lock.json \
