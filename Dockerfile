@@ -2,7 +2,6 @@
 FROM php:8.1-fpm-alpine as base
 
 # Install OS dependencies required by Laravel and PHP extensions
-# Tambahkan -dev dependencies untuk kompilasi ekstensi PHP
 RUN apk add --no-cache \
     git \
     curl \
@@ -21,7 +20,6 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Install PHP extensions required by Laravel
-# Install ekstensi dasar
 RUN docker-php-ext-install -j$(nproc) \
     pdo pdo_mysql opcache bcmath exif pcntl zip intl
 
@@ -41,14 +39,15 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Install Node.js and NPM
 RUN apk add --no-cache nodejs npm
 
-# Copy composer files and install PHP dependencies
+# Copy composer files AND the artisan script
 COPY composer.json composer.lock ./
+COPY artisan ./ # <--- INI PERBAIKANNYA: Salin file Artisan
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
 # Copy package files and install JS dependencies
 COPY package.json package-lock.json ./
 RUN npm install
-RUN npm run dev # Menggunakan 'npm run dev' atau 'npm run build' sesuai konfigurasi Anda
+RUN npm run dev 
 
 # --- Stage 3: Final Production Image ---
 FROM base as final
