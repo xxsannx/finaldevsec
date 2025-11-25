@@ -44,9 +44,8 @@ pipeline{
                 sh "npm install"
             }
         }
-        stage('OWASP FS SCAN') {
+         stage('OWASP FS SCAN') {
             steps {
-                // OWASP DC Tool: Menggunakan nama 'DP-Check'
                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
