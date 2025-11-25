@@ -1,17 +1,20 @@
+// Jenkinsfile (Declarative Pipeline)
 pipeline{
     agent any
     tools{
         // Konfigurasi Tools yang Digunakan:
         jdk 'jdk17'
-        nodejs 'node18' 
+        nodejs 'node18' // Menggunakan node18 sesuai standar DevSecOps Laravel
     }
     environment {
         // Konfigurasi Tool Sonar Scanner:
         SCANNER_HOME=tool 'sonar-scanner'
         
-        
+        // Host aplikasi yang akan di-scan oleh ZAP (setelah deployment)
         // Menggunakan port 3001 di host karena 3000 digunakan Grafana
-        APP_HOST = 'http://host.docker.internal:3001'
+        APP_HOST = 'http://localhost:3001' 
+
+        // VARIABEL ZAP_CMD DIHAPUS.
     }
     stages {
         stage('clean workspace'){
@@ -25,12 +28,29 @@ pipeline{
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
             }
         }
+        // ==========================================================
+        // BARU: STAGE 1 - SECRET SCANNING (GITLEAKS)
+        // Memindai repository untuk secrets yang terekspos.
+        // ==========================================================
+        stage('Secret Scanning (Gitleaks)'){
+            steps{
+                echo "Memulai Secret Scanning menggunakan Gitleaks..."
+                sh '''
+                    # Menggunakan Docker Gitleaks untuk memindai workspace
+                    docker run --rm -v \$(pwd):/code zricethezav/gitleaks:latest detect \
+                    --source=/code \
+                    --report-path=/code/gitleaks_report.json \
+                    --verbose || true
+                '''
+                echo "Gitleaks scan selesai. Laporan ada di gitleaks_report.json (jika ada temuan)."
+            }
+        }
         stage("Sonarqube Analysis "){
             steps{
                 // Sonar Server: Menggunakan nama 'SonarQube-Local'
                 withSonarQubeEnv('SonarQube-Local') {
                     sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=finaldevsec \
-                    -Dsonar.projectKey=finaldevsec '''
+                    -Dsonar.projectKey=finaldevsec ''' // DIUBAH ke finaldevsec
                 }
             }
         }
@@ -38,6 +58,7 @@ pipeline{
            steps {
                 script {
                     // Kredensial Token: Menggunakan nama 'SONAR_AUTH_TOKEN'
+                    // abortPipeline: false agar pipeline tetap berjalan meskipun Quality Gate gagal.
                     waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
                 }
             }
@@ -54,7 +75,9 @@ pipeline{
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
-
+        
+        // STAGE TRIVY FS SCAN DIHAPUS
+        
         stage("Docker Build & Push"){
             steps{
                 script{
@@ -93,24 +116,20 @@ pipeline{
             }
         }
         
-        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN DOCKER CONTAINER STABLE (DI DALAM BLOK OTENTIKASI)
+        // STAGE OWASP ZAP SCAN (DAST)
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 // Membungkus langkah DAST di dalam withDockerRegistry agar docker pull terotentikasi
-                // Solusi: Menambahkan 'url' eksplisit
                 withDockerRegistry(credentialsId: 'docker-hub-credentials', url: 'https://registry.hub.docker.com') { 
                     echo "Menunggu aplikasi siap di ${APP_HOST}..."
                     sleep 10
                     
                     // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
                     sh """
-                        docker run --rm \
-                        --user root \
-                        --network finaldevsec_pineus_network \
-                        -v \$(pwd):/zap/wrk/:rw \
-                        zaproxy/zap-stable zap-baseline.py \
-                        -t http://finaldevsec:3000 \
-                        -r /tmp/zap_report.html
+                        docker run --rm -v \$(pwd):/zap/wrk/:rw \\
+                        owasp/zap2docker-stable zap-baseline.py \\
+                        -t ${APP_HOST} \\
+                        -r zap_report.html
                     """
                     echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
                 }
