@@ -111,6 +111,7 @@ pipeline{
                     sh """
                         docker run --rm \
                         -v \$(pwd):/zap/wrk/:rw \
+                        --user root \
                         zaproxy/zap-stable zap-baseline.py \
                         -t ${APP_HOST} \
                         -r /tmp/zap_report.html
