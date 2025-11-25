@@ -81,7 +81,7 @@ pipeline{
                    // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
                        
-                       // *** PERBAIKAN: Gunakan 'docker rm -f' untuk menghapus secara paksa ***
+                       // *** PEMBERSIHAN DOCKER AGAR PORT 3001 BEBAS ***
                        sh 'docker rm -f finaldevsec || true'
                        
                        echo "Menunggu 10 detik untuk memastikan port dibebaskan..."
@@ -96,19 +96,21 @@ pipeline{
             }
         }
         
-        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN SHELL SCRIPT DENGAN PATH ABSOLUT
+        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN DOCKER CONTAINER
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 echo "Menunggu aplikasi siap di ${APP_HOST}..."
-                // Beri waktu 10 detik agar container Docker benar-benar berjalan
                 sleep 10
                 
-                // MENGGUNAKAN PATH ABSOLUT KE ZAP.SH
-                // Anda tidak memerlukan plugin Jenkins untuk langkah ini.
+                // MENGGUNAKAN ZAP DOCKER CONTAINER
+                // Mengaitkan direktori workspace Jenkins (\$(pwd)) ke /zap/wrk/ di container
                 sh """
-                    /home/ihsan/zap/ZAP_2.16.1/zap.sh -cmd -quickurl ${APP_HOST} -quickprogress -quickout zap_report.html
+                    docker run --rm -v \$(pwd):/zap/wrk/:rw \\
+                    owasp/zap2docker-baseline zap-baseline.py \\
+                    -t ${APP_HOST} \\
+                    -r zap_report.html
                 """
-                echo "OWASP ZAP Baseline Scan selesai. Laporan ada di zap_report.html"
+                echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
             }
         }
 
