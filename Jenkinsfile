@@ -105,10 +105,11 @@ pipeline{
                     // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
                     sh """
                         docker run --rm \
-                        -v \$(pwd):/zap/wrk/:rw \
                         --user root \
+                        --add-host=host.docker.internal:host-gateway \
+                        -v \$(pwd):/zap/wrk/:rw \
                         zaproxy/zap-stable zap-baseline.py \
-                        -t ${APP_HOST} \
+                        -t http://host.docker.internal:3001 \
                         -r /tmp/zap_report.html
                     """
                     echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
