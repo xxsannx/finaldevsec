@@ -1,9 +1,13 @@
 // Jenkinsfile (Scripted Pipeline)
+// Menggunakan pendekatan Hybrid:
+// - Docker (sh "docker run") untuk tools yang butuh isolasi ketat (Dependency-Check, ZAP, Locust).
+// - Plugin (withSonarQubeEnv) untuk integrasi yang didukung langsung oleh Jenkins (SonarQube).
 pipeline {
     agent any 
 
     environment {
         // --- Wajib Dikonfigurasi di Jenkins Credentials ---
+        // Ganti dengan ID Credential Jenkins Anda
         SONAR_TOKEN = credentials('SONAR_AUTH_TOKEN') 
         DOCKER_CREDENTIALS = 'docker-hub-credentials' 
         
@@ -13,54 +17,47 @@ pipeline {
         DOCKER_NETWORK = "finaldevsec_pineus_network" 
         DC_VERSION = '9.0.8' 
         
-        // --- Dependency Check Cache Directory ---
+        // Direktori cache untuk Dependency-Check di dalam workspace Jenkins
         DC_CACHE_DIR = "${WORKSPACE}/dependency-check-data"
     }
 
     stages {
-        // ... (Stage 1: Build & Install Dependencies)
+        // 1. BUILD & INSTALL DEPENDENCIES
         stage('Build & Install Dependencies') {
             steps {
-                echo "Checking out code from GitHub: https://github.com/xxsannx/finaldevsec.git"
-                // 1. Checkout Code
+                echo "Melakukan checkout kode dan membangun image Docker multi-stage..."
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
-                
-                echo "Running Multi-Stage Docker Build to install dependencies inside the image..."
                 
                 script {
                     docker.withRegistry('https://registry.hub.docker.com', DOCKER_CREDENTIALS) {
                         docker.build(DOCKER_IMAGE, "-f Dockerfile .")
-                        echo "Image built successfully: ${DOCKER_IMAGE}"
+                        echo "Image berhasil dibangun: ${DOCKER_IMAGE}"
                     }
                 }
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Menggunakan Cache di Workspace)
+        // 2. DEPENDENCY SCAN (OWASP DC - Menggunakan Docker untuk Keandalan)
+        // Keterangan: Menggunakan Docker run dengan -n dan --data untuk menghindari kegagalan NVD API (403/404).
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
-                echo "Running OWASP Dependency-Check scan on lock files..."
+                echo "Menjalankan scan kerentanan dependensi..."
                 
                 sh "mkdir -p dependency-check-report"
                 
                 script {
-                    // 1. Jalankan container sementara dari image yang sudah di-build
+                    // Menyalin file lock dari container image yang sudah di-build
                     sh "docker run --name temp_scanner -d ${DOCKER_IMAGE} sleep 30"
-                    
-                    // 2. Salin file lock dari container ke WORKSPACE Jenkins
                     sh "docker cp temp_scanner:/var/www/html/composer.lock ."
                     sh "docker cp temp_scanner:/var/www/html/package-lock.json ."
-                    
-                    // 3. Hentikan dan hapus container sementara
                     sh "docker stop temp_scanner"
                     sh "docker rm temp_scanner"
                 }
 
-                // Buat direktori cache (walaupun docker run akan membuatnya, ini lebih aman)
+                // Membuat direktori cache lokal untuk Dependency-Check
                 sh "mkdir -p ${DC_CACHE_DIR}"
 
-                // 4. Jalankan scan. Menggunakan --data untuk menunjuk ke direktori cache lokal
-                // dan -n untuk memaksa skip update NVD yang gagal.
+                // Menjalankan Dependency-Check di dalam container Docker
                 sh """
                     docker run --rm \
                         -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
@@ -76,17 +73,18 @@ pipeline {
                         -n
                 """
                 
-                // Hapus file lock yang dicopy agar tidak mengganggu checkout berikutnya
+                // Pembersihan file lock
                 sh "rm composer.lock package-lock.json" 
                 
-                echo "OWASP Dependency-Check selesai. Laporan disimpan di dependency-check-report/report.html"
+                echo "OWASP Dependency-Check selesai. Laporan di dependency-check-report/report.html"
             }
         }
 
-        // ... (Tahap 3 dan seterusnya tetap sama)
+        // 3. STATIC CODE ANALYSIS (SONARQUBE - Menggunakan Pendekatan Plugin/Lingkungan)
         stage('Static Code Analysis (SonarQube)') {
             steps {
-                echo "Running SonarQube static analysis..."
+                echo "Menjalankan analisis kode statis SonarQube..."
+                // Menggunakan withSonarQubeEnv dari SonarQube Scanner Plugin
                 withSonarQubeEnv('SonarQube-Local') { 
                     sh """
                         sonar-scanner \
@@ -99,21 +97,23 @@ pipeline {
             }
         }
         
+        // 4. DOCKER IMAGE PUSH
         stage('Docker Image Push') {
             steps {
-                echo "Pushing Docker image..."
+                echo "Mendorong image Docker ke registry..."
                 script {
                     docker.withRegistry('https://registry.hub.docker.com', DOCKER_CREDENTIALS) {
                         docker.image(DOCKER_IMAGE).push() 
-                        echo "Docker Image Pushed: ${DOCKER_IMAGE}"
+                        echo "Image Docker berhasil di dorong: ${DOCKER_IMAGE}"
                     }
                 }
             }
         }
         
+        // 5. TRAFFIC GENERATION (LOCUST - Menggunakan Docker)
         stage('Traffic Generation (Locust)') {
             steps {
-                echo "Starting Load Test using Locust for 60 seconds (50 users)..."
+                echo "Memulai Load Test menggunakan Locust (60 detik, 50 pengguna)..."
                 
                 sh """
                     docker run --rm \
@@ -128,17 +128,19 @@ pipeline {
                         --run-time 60s \
                         --csv=locust_results
                 """
-                echo "Load Test finished. Results saved to locust_results.csv in workspace."
+                echo "Load Test selesai. Hasil di locust_results.csv."
             }
         }
         
+        // 6. DAST SCAN (OWASP ZAP - Menggunakan Docker)
         stage('DAST Scan (OWASP ZAP)') {
             steps {
-                echo "Running OWASP ZAP DAST scan against ${STAGING_URL}..."
+                echo "Menjalankan DAST Scan (OWASP ZAP) terhadap ${STAGING_URL}..."
                 sh "docker run --rm zaproxy/zap-stable zap-cli quick-scan --self-contained ${STAGING_URL}"
             }
         }
         
+        // 7. FINAL DEPLOYMENT
         stage('Final Deploy to Production') {
             when {
                 expression {
@@ -146,7 +148,7 @@ pipeline {
                 }
             }
             steps {
-                echo "All scans and tests passed. Ready for deployment."
+                echo "Semua scan dan tes telah lulus. Siap untuk deployment."
             }
         }
     }
