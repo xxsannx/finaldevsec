@@ -96,17 +96,17 @@ pipeline{
             }
         }
         
-        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN DOCKER CONTAINER
+        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN DOCKER CONTAINER STABLE
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 echo "Menunggu aplikasi siap di ${APP_HOST}..."
                 sleep 10
                 
-                // MENGGUNAKAN ZAP DOCKER CONTAINER
-                // Mengaitkan direktori workspace Jenkins (\$(pwd)) ke /zap/wrk/ di container
+                // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
+                // Kontainer ini sudah menyertakan zap-baseline.py
                 sh """
                     docker run --rm -v \$(pwd):/zap/wrk/:rw \\
-                    owasp/zap2docker-baseline zap-baseline.py \\
+                    owasp/zap2docker-stable zap-baseline.py \\
                     -t ${APP_HOST} \\
                     -r zap_report.html
                 """
