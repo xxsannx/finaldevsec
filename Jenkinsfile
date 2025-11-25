@@ -102,7 +102,8 @@ pipeline{
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 // Membungkus langkah DAST di dalam withDockerRegistry agar docker pull terotentikasi
-                withDockerRegistry(credentialsId: 'docker-hub-credentials') { 
+                // Solusi: Menambahkan 'url' eksplisit
+                withDockerRegistry(credentialsId: 'docker-hub-credentials', url: 'https://registry.hub.docker.com') { 
                     echo "Menunggu aplikasi siap di ${APP_HOST}..."
                     sleep 10
                     
