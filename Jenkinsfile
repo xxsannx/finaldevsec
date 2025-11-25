@@ -1,20 +1,17 @@
-// Jenkinsfile (Declarative Pipeline)
 pipeline{
     agent any
     tools{
         // Konfigurasi Tools yang Digunakan:
         jdk 'jdk17'
-        nodejs 'node18' // Menggunakan node18 sesuai standar DevSecOps Laravel
+        nodejs 'node18' 
     }
     environment {
         // Konfigurasi Tool Sonar Scanner:
         SCANNER_HOME=tool 'sonar-scanner'
         
-        // Host aplikasi yang akan di-scan oleh ZAP (setelah deployment)
+        
         // Menggunakan port 3001 di host karena 3000 digunakan Grafana
-        APP_HOST = 'http://localhost:3001' 
-
-        // VARIABEL ZAP_CMD DIHAPUS.
+        APP_HOST = 'http://host.docker.internal:3001'
     }
     stages {
         stage('clean workspace'){
@@ -33,7 +30,7 @@ pipeline{
                 // Sonar Server: Menggunakan nama 'SonarQube-Local'
                 withSonarQubeEnv('SonarQube-Local') {
                     sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=finaldevsec \
-                    -Dsonar.projectKey=finaldevsec ''' // DIUBAH ke finaldevsec
+                    -Dsonar.projectKey=finaldevsec '''
                 }
             }
         }
@@ -57,9 +54,7 @@ pipeline{
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
-        
-        // STAGE TRIVY FS SCAN DIHAPUS
-        
+
         stage("Docker Build & Push"){
             steps{
                 script{
