@@ -1,13 +1,11 @@
 // Jenkinsfile (Scripted Pipeline)
-// Menggunakan pendekatan Hybrid:
-// - Docker (sh "docker run") untuk tools yang butuh isolasi ketat (Dependency-Check, ZAP, Locust).
-// - Plugin (withSonarQubeEnv) untuk integrasi yang didukung langsung oleh Jenkins (SonarQube).
+// Menggunakan pendekatan Plugin Jenkins untuk OWASP Dependency-Check agar lebih stabil
+// dan melewati masalah NVD API yang persisten pada mode Docker.
 pipeline {
     agent any 
 
     environment {
         // --- Wajib Dikonfigurasi di Jenkins Credentials ---
-        // Ganti dengan ID Credential Jenkins Anda
         SONAR_TOKEN = credentials('SONAR_AUTH_TOKEN') 
         DOCKER_CREDENTIALS = 'docker-hub-credentials' 
         
@@ -15,10 +13,7 @@ pipeline {
         DOCKER_IMAGE = "xxsamx/laravel-devsecops:${env.BUILD_ID}" 
         STAGING_URL = "http://nginx:80" 
         DOCKER_NETWORK = "finaldevsec_pineus_network" 
-        DC_VERSION = '9.0.8' 
-        
-        // Direktori cache untuk Dependency-Check di dalam workspace Jenkins
-        DC_CACHE_DIR = "${WORKSPACE}/dependency-check-data"
+        DC_VERSION = '9.0.8' // Versi Docker tidak lagi digunakan, tetapi variabel dipertahankan
     }
 
     stages {
@@ -37,16 +32,14 @@ pipeline {
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Menggunakan Docker untuk Keandalan)
-        // Keterangan: Menggunakan Docker run dengan -n dan --data untuk menghindari kegagalan NVD API (403/404).
+        // 2. DEPENDENCY SCAN (OWASP DC - MENGGUNAKAN PLUGIN JENKINS)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
-                echo "Menjalankan scan kerentanan dependensi..."
+                echo "Menjalankan scan kerentanan dependensi menggunakan Plugin Jenkins..."
                 
-                sh "mkdir -p dependency-check-report"
-                
+                // Langkah 1: Salin file lock dari container ke workspace agar Plugin dapat mengaksesnya
                 script {
-                    // Menyalin file lock dari container image yang sudah di-build
+                    sh "mkdir -p dependency-check-report" // Pastikan direktori report ada
                     sh "docker run --name temp_scanner -d ${DOCKER_IMAGE} sleep 30"
                     sh "docker cp temp_scanner:/var/www/html/composer.lock ."
                     sh "docker cp temp_scanner:/var/www/html/package-lock.json ."
@@ -54,37 +47,32 @@ pipeline {
                     sh "docker rm temp_scanner"
                 }
 
-                // Membuat direktori cache lokal untuk Dependency-Check
-                sh "mkdir -p ${DC_CACHE_DIR}"
-
-                // Menjalankan Dependency-Check di dalam container Docker
-                sh """
-                    docker run --rm \
-                        -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
-                        -v "${WORKSPACE}/package-lock.json":/scan/package-lock.json \
-                        -v "${WORKSPACE}/dependency-check-report":/report \
-                        -v "${DC_CACHE_DIR}":/data \
-                        owasp/dependency-check:${DC_VERSION} \
-                        --scan /scan/composer.lock /scan/package-lock.json \
-                        --format HTML \
-                        --out /report \
-                        --project "Laravel DevSecOps" \
-                        --data /data \
-                        -n
-                """
+                // Langkah 2: Jalankan Plugin Dependency-Check
+                // Argumen: --scan . : Scan direktori saat ini (yang berisi file lock)
+                //          --noupdate : Wajib ditambahkan di sini untuk melewati kegagalan NVD
+                //          --format XML : Format yang dibutuhkan oleh DependencyCheckPublisher
+                dependencyCheck additionalArguments: '''
+                    --scan .
+                    --format XML
+                    --project "Laravel DevSecOps"
+                    --noupdate
+                    --out dependency-check-report
+                ''', odcInstallation: 'Dependency-Check' // PASTIKAN NAMA INI SAMA DENGAN KONFIGURASI DI JENKINS
                 
+                // Langkah 3: Publikasikan hasilnya ke UI Jenkins
+                dependencyCheckPublisher pattern: 'dependency-check-report/dependency-check-report.xml'
+
                 // Pembersihan file lock
                 sh "rm composer.lock package-lock.json" 
                 
-                echo "OWASP Dependency-Check selesai. Laporan di dependency-check-report/report.html"
+                echo "OWASP Dependency-Check selesai. Laporan diintegrasikan ke Jenkins UI."
             }
         }
 
-        // 3. STATIC CODE ANALYSIS (SONARQUBE - Menggunakan Pendekatan Plugin/Lingkungan)
+        // 3. STATIC CODE ANALYSIS (SONARQUBE)
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 echo "Menjalankan analisis kode statis SonarQube..."
-                // Menggunakan withSonarQubeEnv dari SonarQube Scanner Plugin
                 withSonarQubeEnv('SonarQube-Local') { 
                     sh """
                         sonar-scanner \
@@ -110,7 +98,7 @@ pipeline {
             }
         }
         
-        // 5. TRAFFIC GENERATION (LOCUST - Menggunakan Docker)
+        // 5. TRAFFIC GENERATION (LOCUST)
         stage('Traffic Generation (Locust)') {
             steps {
                 echo "Memulai Load Test menggunakan Locust (60 detik, 50 pengguna)..."
@@ -132,7 +120,7 @@ pipeline {
             }
         }
         
-        // 6. DAST SCAN (OWASP ZAP - Menggunakan Docker)
+        // 6. DAST SCAN (OWASP ZAP)
         stage('DAST Scan (OWASP ZAP)') {
             steps {
                 echo "Menjalankan DAST Scan (OWASP ZAP) terhadap ${STAGING_URL}..."
