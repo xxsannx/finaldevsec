@@ -12,6 +12,9 @@ pipeline {
         STAGING_URL = "http://nginx:80" 
         DOCKER_NETWORK = "finaldevsec_pineus_network" 
         DC_VERSION = '9.0.8' 
+        
+        // --- Dependency Check Cache Directory ---
+        DC_CACHE_DIR = "${WORKSPACE}/dependency-check-data"
     }
 
     stages {
@@ -33,7 +36,7 @@ pipeline {
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Menggunakan Cache Path yang Benar & -n)
+        // 2. DEPENDENCY SCAN (OWASP DC - Menggunakan Cache di Workspace)
         stage('Dependency Vulnerability (OWASP DC)') {
             steps {
                 echo "Running OWASP Dependency-Check scan on lock files..."
@@ -53,19 +56,23 @@ pipeline {
                     sh "docker rm temp_scanner"
                 }
 
-                // 4. Jalankan scan. Path cache diubah ke /usr/share/dependency-check/data
-                // dan -n ditambahkan kembali.
+                // Buat direktori cache (walaupun docker run akan membuatnya, ini lebih aman)
+                sh "mkdir -p ${DC_CACHE_DIR}"
+
+                // 4. Jalankan scan. Menggunakan --data untuk menunjuk ke direktori cache lokal
+                // dan -n untuk memaksa skip update NVD yang gagal.
                 sh """
                     docker run --rm \
                         -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
                         -v "${WORKSPACE}/package-lock.json":/scan/package-lock.json \
                         -v "${WORKSPACE}/dependency-check-report":/report \
-                        -v "dcheck-data-cache:/usr/share/dependency-check/data" \
+                        -v "${DC_CACHE_DIR}":/data \
                         owasp/dependency-check:${DC_VERSION} \
                         --scan /scan/composer.lock /scan/package-lock.json \
                         --format HTML \
                         --out /report \
                         --project "Laravel DevSecOps" \
+                        --data /data \
                         -n
                 """
                 
