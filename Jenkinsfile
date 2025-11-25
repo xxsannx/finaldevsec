@@ -18,6 +18,7 @@ pipeline{
         }
         stage('Checkout from Git'){
             steps{
+                // Menggunakan tautan GitHub finaldevsec.git
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
             }
         }
@@ -25,8 +26,8 @@ pipeline{
             steps{
                 // Sonar Server: Menggunakan nama 'SonarQube-Local'
                 withSonarQubeEnv('SonarQube-Local') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=zomato \
-                    -Dsonar.projectKey=zomato '''
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=finaldevsec \
+                    -Dsonar.projectKey=finaldevsec ''' // DIUBAH ke finaldevsec
                 }
             }
         }
@@ -60,16 +61,17 @@ pipeline{
                 script{
                    // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
-                       sh "docker build -t zomato ."
-                       sh "docker tag zomato jay75chauhan/zomato:latest "
-                       sh "docker push jay75chauhan/zomato:latest "
+                       sh "docker build -t finaldevsec ." // DIUBAH ke finaldevsec
+                       sh "docker tag finaldevsec jay75chauhan/finaldevsec:latest " // DIUBAH ke finaldevsec
+                       sh "docker push jay75chauhan/finaldevsec:latest " // DIUBAH ke finaldevsec
                     }
                 }
             }
         }
         stage("TRIVY"){
             steps{
-                sh "trivy image jay75chauhan/zomato:latest > trivy.txt"
+                // Image Trivy: Menggunakan nama 'finaldevsec'
+                sh "trivy image jay75chauhan/finaldevsec:latest > trivy.txt"
             }
         }
         stage('Deploy to container'){
@@ -77,7 +79,8 @@ pipeline{
                 script{
                    // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
-                       sh 'docker run -d --name zomato -p 3000:3000 jay75chauhan/zomato:latest'
+                       // Nama Container & Image: Menggunakan 'finaldevsec'
+                       sh 'docker run -d --name finaldevsec -p 3000:3000 jay75chauhan/finaldevsec:latest'
                     }
                 }
             }
