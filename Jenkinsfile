@@ -13,6 +13,9 @@ pipeline{
         // Host aplikasi yang akan di-scan oleh ZAP (setelah deployment)
         // Menggunakan port 3001 di host karena 3000 digunakan Grafana
         APP_HOST = 'http://localhost:3001' 
+        
+        // Nama image yang akan di-scan oleh Trivy
+        DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
 
         // VARIABEL ZAP_CMD DIHAPUS.
     }
@@ -29,14 +32,14 @@ pipeline{
             }
         }
         // ==========================================================
-        // BARU: STAGE 1 - SECRET SCANNING (GITLEAKS)
+        // STAGE 1 - SECRET SCANNING (GITLEAKS)
         // Memindai repository untuk secrets yang terekspos.
         // ==========================================================
         stage('Secret Scanning (Gitleaks)'){
             steps{
                 echo "Memulai Secret Scanning menggunakan Gitleaks..."
+                // Menggunakan Docker Gitleaks
                 sh '''
-                    # Menggunakan Docker Gitleaks untuk memindai workspace
                     docker run --rm -v \$(pwd):/code zricethezav/gitleaks:latest detect \
                     --source=/code \
                     --report-path=/code/gitleaks_report.json \
@@ -57,8 +60,7 @@ pipeline{
         stage("quality gate"){
            steps {
                 script {
-                    // Kredensial Token: Menggunakan nama 'SONAR_AUTH_TOKEN'
-                    // abortPipeline: false agar pipeline tetap berjalan meskipun Quality Gate gagal.
+                    // abortPipeline: false memungkinkan pipeline berjalan meskipun Quality Gate gagal
                     waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
                 }
             }
@@ -76,41 +78,48 @@ pipeline{
             }
         }
         
-        // STAGE TRIVY FS SCAN DIHAPUS
-        
         stage("Docker Build & Push"){
             steps{
                 script{
                    // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
-                   // 'toolName: 'docker'' diperlukan untuk akses docker CLI
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
                        sh "docker build -t finaldevsec ." // DIUBAH ke finaldevsec
-                       sh "docker tag finaldevsec xxsamx/finaldevsec:latest " // DIUBAH ke xxsamx
-                       sh "docker push xxsamx/finaldevsec:latest " // DIUBAH ke xxsamx
+                       sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
+                       sh "docker push ${DOCKER_IMAGE}" 
                     }
                 }
             }
         }
         
-        // STAGE TRIVY (IMAGE SCAN) DIHAPUS
+        // ==========================================================
+        // BARU: STAGE 2 - IMAGE SCANNING (TRIVY)
+        // Memindai kerentanan di Docker Image.
+        // ==========================================================
+        stage('Image Scanning (Trivy)') {
+            steps {
+                echo "Memulai Image Scanning menggunakan Trivy untuk image ${DOCKER_IMAGE}..."
+                // Menggunakan Docker Trivy Image
+                // Note: Trivy bisa mengunduh image dari Docker Hub (karena sudah di-push)
+                sh """
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
+                    aquasec/trivy:latest image --severity HIGH,CRITICAL ${DOCKER_IMAGE}
+                """
+                echo "Trivy scan selesai."
+            }
+        }
         
         stage('Deploy to container'){
             steps{
                 script{
-                   // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
-                   // 'toolName: 'docker'' diperlukan untuk akses docker CLI
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
                        
-                       // *** PEMBERSIHAN DOCKER AGAR PORT 3001 BEBAS ***
                        sh 'docker rm -f finaldevsec || true'
-                       
                        echo "Menunggu 10 detik untuk memastikan port dibebaskan..."
                        sleep 10
-                       // *******************************************************************
                        
                        // Nama Container & Image: Menggunakan 'finaldevsec'
                        // Pemetaan port baru: 3001 (host) -> 3000 (container)
-                       sh 'docker run -d --name finaldevsec -p 3001:3000 xxsamx/finaldevsec:latest' // DIUBAH ke xxsamx
+                       sh "docker run -d --name finaldevsec -p 3001:3000 ${DOCKER_IMAGE}"
                     }
                 }
             }
@@ -126,9 +135,10 @@ pipeline{
                     
                     // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
                     sh """
-                        docker run --rm -v \$(pwd):/zap/wrk/:rw \\
-                        owasp/zap2docker-stable zap-baseline.py \\
-                        -t ${APP_HOST} \\
+                        docker run --rm -v \
+                        --network finaldevsec_pineus_network \
+                        zaproxy/zap-stable zap-baseline.py \
+                        -t http://finaldevsec:3000 \
                         -r zap_report.html
                     """
                     echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
