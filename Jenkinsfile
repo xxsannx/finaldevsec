@@ -64,6 +64,7 @@ pipeline{
             steps{
                 script{
                    // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
+                   // 'toolName: 'docker'' diperlukan untuk akses docker CLI
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
                        sh "docker build -t finaldevsec ." // DIUBAH ke finaldevsec
                        sh "docker tag finaldevsec xxsamx/finaldevsec:latest " // DIUBAH ke xxsamx
@@ -79,6 +80,7 @@ pipeline{
             steps{
                 script{
                    // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
+                   // 'toolName: 'docker'' diperlukan untuk akses docker CLI
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
                        
                        // *** PEMBERSIHAN DOCKER AGAR PORT 3001 BEBAS ***
@@ -96,21 +98,23 @@ pipeline{
             }
         }
         
-        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN DOCKER CONTAINER STABLE
+        // STAGE OWASP ZAP SCAN (DAST) - MENGGUNAKAN DOCKER CONTAINER STABLE (DI DALAM BLOK OTENTIKASI)
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
-                echo "Menunggu aplikasi siap di ${APP_HOST}..."
-                sleep 10
-                
-                // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
-                // Kontainer ini sudah menyertakan zap-baseline.py
-                sh """
-                    docker run --rm -v \$(pwd):/zap/wrk/:rw \\
-                    owasp/zap2docker-stable zap-baseline.py \\
-                    -t ${APP_HOST} \\
-                    -r zap_report.html
-                """
-                echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
+                // Membungkus langkah DAST di dalam withDockerRegistry agar docker pull terotentikasi
+                withDockerRegistry(credentialsId: 'docker-hub-credentials') { 
+                    echo "Menunggu aplikasi siap di ${APP_HOST}..."
+                    sleep 10
+                    
+                    // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
+                    sh """
+                        docker run --rm -v \$(pwd):/zap/wrk/:rw \\
+                        owasp/zap2docker-stable zap-baseline.py \\
+                        -t ${APP_HOST} \\
+                        -r zap_report.html
+                    """
+                    echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
+                }
             }
         }
 
