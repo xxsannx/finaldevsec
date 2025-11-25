@@ -1,55 +1,61 @@
-// Jenkinsfile (Scripted Pipeline)
-// Menggunakan pendekatan Docker untuk Dependency-Check agar stabil.
-// Tahap DB Migration/Seeding dihilangkan sesuai permintaan.
+// Jenkinsfile (Declarative Pipeline) - Menggunakan konfigurasi DevSecOps Laravel/PHP
 pipeline {
-    agent any 
+    agent any
+
+    tools {
+        // Asumsi: Java dan Node diperlukan untuk SonarQube Scanner dan Tools di Agent
+        // Sesuaikan nama tool ('jdk17', 'node16') dengan konfigurasi Global Tool Jenkins Anda
+        jdk 'jdk17'
+        nodejs 'node18'
+    }
 
     environment {
-        // --- Wajib Dikonfigurasi di Jenkins Credentials ---
+        // --- KONFIGURASI DARI PROJECT LARAVEL ---
+        DOCKER_IMAGE = "xxsamx/laravel-devsecops:${env.BUILD_ID}" 
+        DOCKER_NETWORK = "finaldevsec_pineus_network" // Jaringan Docker yang digunakan
+        STAGING_URL = "http://nginx:80"             // URL untuk DAST dan Load Testing
+        DC_CACHE_DIR = "${WORKSPACE}/dependency-check-data" // Cache untuk Docker DC
+
+        // --- CREDENTIALS (Dikonfigurasi di Jenkins Credentials Manager) ---
         SONAR_TOKEN = credentials('SONAR_AUTH_TOKEN') 
         DOCKER_CREDENTIALS = 'docker-hub-credentials' 
         
-        // --- Konfigurasi Image & URL ---
-        DOCKER_IMAGE = "xxsamx/laravel-devsecops:${env.BUILD_ID}" 
-        STAGING_URL = "http://nginx:80" 
-        DOCKER_NETWORK = "finaldevsec_pineus_network" 
-        DC_VERSION = '9.0.8' 
-        
-        // Direktori cache untuk Dependency-Check di dalam workspace Jenkins
-        DC_CACHE_DIR = "${WORKSPACE}/dependency-check-data"
-
-        // Variabel Lingkungan Database (Dipertahankan untuk tahap yang lain jika diperlukan)
-        DB_HOST_STAGING = 'mysql_service_name' 
-        DB_DATABASE = 'laravel'
-        DB_USERNAME = 'user'
-        DB_PASSWORD = 'password'
+        // Asumsi SonarQube Server bernama 'SonarQube-Local'
     }
 
     stages {
-        // 1. BUILD & INSTALL DEPENDENCIES
-        stage('Build & Install Dependencies') {
+        stage('clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+        
+        // 1. CHECKOUT & BUILD (Menggantikan Checkout dan Install Dependencies)
+        stage('Checkout & Build Image') {
             steps {
                 echo "Melakukan checkout kode dan membangun image Docker multi-stage..."
+                // Menggunakan source code dari project DevSecOps Anda
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
                 
                 script {
-                    docker.withRegistry('https://registry.hub.docker.com', DOCKER_CREDENTIALS) {
-                        docker.build(DOCKER_IMAGE, "-f Dockerfile .")
+                    withDockerRegistry(credentialsId: DOCKER_CREDENTIALS) {
+                        // Membangun image Docker multi-stage
+                        sh "docker build -t ${DOCKER_IMAGE} -f Dockerfile ."
                         echo "Image berhasil dibangun: ${DOCKER_IMAGE}"
                     }
                 }
             }
         }
         
-        // 2. DEPENDENCY SCAN (OWASP DC - Menggunakan Docker dan Bypass NVD)
-        stage('Dependency Vulnerability (OWASP DC)') {
+        // 2. DEPENDENCY SCAN (OWASP DC - MENGGUNAKAN DOCKER STABIL)
+        stage('OWASP Dependency-Check (Docker)') {
             steps {
-                echo "Menjalankan scan kerentanan dependensi menggunakan Docker (Bypass NVD Update)..."
+                echo "Menjalankan scan dependensi menggunakan Docker (Solusi Stabil)..."
                 
                 sh "mkdir -p dependency-check-report"
                 
+                // Salin file lock dari image yang baru di-build
                 script {
-                    // Menyalin file lock dari container image ke workspace
                     sh "docker run --name temp_scanner -d ${DOCKER_IMAGE} sleep 30"
                     sh "docker cp temp_scanner:/var/www/html/composer.lock ."
                     sh "docker cp temp_scanner:/var/www/html/package-lock.json ."
@@ -57,12 +63,9 @@ pipeline {
                     sh "docker rm temp_scanner"
                 }
 
-                // Membuat direktori cache lokal untuk Dependency-Check
+                // Jalankan Dependency-Check di dalam container Docker
+                // Menggunakan -n dan --data /data untuk bypass kegagalan update NVD
                 sh "mkdir -p ${DC_CACHE_DIR}"
-
-                // Menjalankan Dependency-Check di dalam container Docker
-                // --data /data: Menggunakan direktori mount /data sebagai lokasi cache
-                // -n: Memaksa lewati update NVD
                 sh """
                     docker run --rm \
                         -v "${WORKSPACE}/composer.lock":/scan/composer.lock \
@@ -78,22 +81,21 @@ pipeline {
                         -n
                 """
                 
-                // Pembersihan file lock
                 sh "rm composer.lock package-lock.json" 
-                
-                echo "OWASP Dependency-Check selesai. Laporan di dependency-check-report/report.html"
+                echo "OWASP Dependency-Check selesai."
             }
         }
 
         // 3. STATIC CODE ANALYSIS (SONARQUBE)
-        stage('Static Code Analysis (SonarQube)') {
+        stage("Sonarqube Analysis") {
             steps {
-                echo "Menjalankan analisis kode statis SonarQube..."
-                withSonarQubeEnv('SonarQube-Local') { 
+                withSonarQubeEnv('SonarQube-Local') { // Ganti dengan nama Server SonarQube Anda
                     sh """
+                        // SonarQube Scanner menggunakan tool 'sonar-scanner' yang didefinisikan secara global
                         sonar-scanner \
                           -Dsonar.projectKey=laravel-devsecops \
-                          -Dsonar.sources=app,config,database \
+                          -Dsonar.projectName=laravel-devsecops \
+                          -Dsonar.sources=app,config,database,routes \
                           -Dsonar.exclusions=vendor/**,node_modules/**,public/**,storage/**,tests/**,dependency-check-report/** \
                           -Dsonar.login=${SONAR_TOKEN}
                     """
@@ -101,58 +103,59 @@ pipeline {
             }
         }
         
-        // 4. DOCKER IMAGE PUSH
-        stage('Docker Image Push') {
-            steps {
-                echo "Mendorong image Docker ke registry..."
+        // 4. QUALITY GATE CHECK
+        stage("Quality Gate") {
+           steps {
                 script {
-                    docker.withRegistry('https://registry.hub.docker.com', DOCKER_CREDENTIALS) {
-                        docker.image(DOCKER_IMAGE).push() 
-                        echo "Image Docker berhasil di dorong: ${DOCKER_IMAGE}"
+                    // Pastikan credentialsId ini sesuai dengan Sonar Token Anda di Jenkins
+                    waitForQualityGate abortPipeline: true, credentialsId: 'SONAR_AUTH_TOKEN' 
+                }
+            }
+        }
+
+        // 5. TRIVY FILESYSTEM SCAN
+        stage('TRIVY Filesystem Scan') {
+            steps {
+                // Melakukan FS scan terhadap workspace (sebelum push)
+                sh "trivy fs . > trivyfs_report.txt"
+            }
+        }
+
+        // 6. DOCKER IMAGE PUSH
+        stage("Docker Image Push"){
+            steps{
+                script{
+                   withDockerRegistry(credentialsId: DOCKER_CREDENTIALS) {
+                       sh "docker tag ${DOCKER_IMAGE} jay75chauhan/finaldevsec:${env.BUILD_ID}"
+                       sh "docker push jay75chauhan/finaldevsec:${env.BUILD_ID}"
                     }
                 }
             }
         }
         
-        // 5. TRAFFIC GENERATION (LOCUST)
-        stage('Traffic Generation (Locust)') {
-            steps {
-                echo "Memulai Load Test menggunakan Locust (60 detik, 50 pengguna)..."
-                sh """
-                    docker run --rm \
-                        -v "${WORKSPACE}/docker/locust/locustfile.py":/home/locust/locustfile.py \
-                        --network=\${DOCKER_NETWORK} \
-                        locustio/locust \
-                        -f /home/locust/locustfile.py \
-                        --host=${STAGING_URL} \
-                        --headless \
-                        -u 50 \
-                        -r 10 \
-                        --run-time 60s \
-                        --csv=locust_results
-                """
-                echo "Load Test selesai. Hasil di locust_results.csv."
+        // 7. TRIVY IMAGE SCAN
+        stage("TRIVY Image Scan"){
+            steps{
+                // Melakukan Image scan terhadap image yang baru di-push
+                sh "trivy image jay75chauhan/finaldevsec:${env.BUILD_ID} > trivy_image_report.txt"
             }
         }
         
-        // 6. DAST SCAN (OWASP ZAP)
+        // 8. DAST SCAN (Menggantikan Deploy to Container yang sederhana)
         stage('DAST Scan (OWASP ZAP)') {
             steps {
                 echo "Menjalankan DAST Scan (OWASP ZAP) terhadap ${STAGING_URL}..."
-                sh "docker run --rm zaproxy/zap-stable zap-cli quick-scan --self-contained ${STAGING_URL}"
+                // ZAP berjalan di jaringan yang sama dengan aplikasi (pineus_tilu_network)
+                sh "docker run --rm --network=${DOCKER_NETWORK} zaproxy/zap-stable zap-cli quick-scan --self-contained ${STAGING_URL}"
             }
         }
         
-        // 7. FINAL DEPLOYMENT
-        stage('Final Deploy to Production') {
-            when {
-                expression {
-                    currentBuild.result == 'SUCCESS'
-                }
-            }
-            steps {
-                echo "Semua scan dan tes telah lulus. Siap untuk deployment."
+        // 9. FINAL DEPLOYMENT
+        stage('Final Deployment') {
+            steps{
+                echo "Semua scan dan tes telah lulus. Siap untuk deployment final."
             }
         }
+
     }
 }
