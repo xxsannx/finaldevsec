@@ -127,7 +127,8 @@ pipeline{
                     -v \$(pwd)/zap_reports:/zap/reports \
                     -v \$(pwd)/zap_work:/zap/wrk \
                     zaproxy/zap-stable \
-                    zap-baseline.py -t http://pineus_tilu_nginx:80 \
+                    zap-baseline.py \
+                        -t http://pineus_tilu_nginx:80 \
                         -r /zap/reports/zap_report.html
                     """
                 }
@@ -138,6 +139,7 @@ pipeline{
                 }
             }
         }
+
 
 
         stage('Post-Deployment Cleanup'){
