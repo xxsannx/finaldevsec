@@ -111,8 +111,22 @@ pipeline{
                 echo "Menunggu aplikasi siap..."
                 sleep 20
 
-                sh "mkdir -p zap_reports"
-                sh "mkdir -p zap_work"
+                sh """
+                mkdir -p zap_reports zap_work
+                chmod -R 777 zap_reports zap_work
+                """
+
+                echo "Mengecek apakah aplikasi sudah bisa diakses..."
+                sh """
+                for i in {1..10}; do
+                    if curl -s ${APP_INTERNAL_HOST} >/dev/null; then
+                        echo "Aplikasi siap!"
+                        break
+                    fi
+                    echo "Retry (\$i/10)... waiting 5s"
+                    sleep 5
+                done
+                """
 
                 sh """
                 docker run --rm \
@@ -123,7 +137,8 @@ pipeline{
                     -t ${APP_INTERNAL_HOST} \
                     -r zap_report.html || true
                 """
-                
+
+                echo "Arsipkan laporan ZAP..."
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', onlyIfSuccessful: false
             }
         }
