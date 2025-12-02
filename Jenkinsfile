@@ -115,28 +115,30 @@ pipeline{
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 script {
-
-                    sh "mkdir -p ${WORKSPACE}/zap_reports"
-                    sh "mkdir -p ${WORKSPACE}/zap_work"
-                    sh "chmod -R 777 ${WORKSPACE}/zap_reports ${WORKSPACE}/zap_work"
+                    sh 'mkdir -p zap_reports zap_work'
+                    sh 'chmod -R 777 zap_reports zap_work'
 
                     echo "Menunggu container up..."
+                    sleep 20
+
                     sh """
                     docker run --rm \
-                        --network ${DOCKER_NETWORK} \
-                        -v ${WORKSPACE}/zap_reports:/zap/reports \
-                        -v ${WORKSPACE}/zap_work:/zap/wrk \
-                        zaproxy/zap-stable \
-                            zap-baseline.py \
-                            -t ${APP_INTERNAL_HOST} \
-                            -r zap_report.html || true
+                    --network finaldevsec_pineus_network \
+                    -v \$(pwd)/zap_reports:/zap/reports \
+                    -v \$(pwd)/zap_work:/zap/wrk \
+                    zaproxy/zap-stable \
+                    zap-baseline.py -t http://pineus_tilu_nginx:80 \
+                        -r /zap/reports/zap_report.html
                     """
-
                 }
-
-                archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
+                }
             }
         }
+
 
         stage('Post-Deployment Cleanup'){
             steps{
