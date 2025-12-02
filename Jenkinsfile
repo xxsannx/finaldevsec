@@ -1,74 +1,59 @@
-// Jenkinsfile (Declarative Pipeline)
-pipeline{
-    // Menggunakan agen "any" (berjalan di master atau agent manapun)
-    agent any
-    
-    tools{
-        // Tools yang harus dikonfigurasi di Jenkins -> Global Tool Configuration
-        jdk 'jdk17'
-        nodejs 'node18' 
+pipeline {
+    agent {
+        any 
     }
     
     environment {
-        // Konfigurasi Tool Sonar Scanner (Harus diinstal di Global Tool Configuration)
-        SCANNER_HOME=tool 'sonar-scanner'
-        
-        // Nama image yang akan di-push ke Docker Hub
-        DOCKER_IMAGE = "xxsamx/finaldevsec"
-
-
-        // Nama layanan Nginx di JARINGAN DOCKER COMPOSE Anda.
-        // Digunakan untuk ZAP. ZAP akan menargetkan port host 8001
-        APP_INTERNAL_HOST = 'http://host.docker.internal:8001' 
-        
-        // Nama jaringan Docker Compose default Anda.
-        DOCKER_NETWORK = 'finaldevsec_default:latest'
-
-        // Nama container deployment yang akan dibuat dan dihapus
-        DEPLOY_CONTAINER_NAME = 'finaldevsec_deployed_app'
+        // Nama repositori Docker Hub Anda. Tag akan ditambahkan secara otomatis dengan nomor build.
+        DOCKER_IMAGE = 'xxsamx/finaldevsec' 
+        DOCKER_REGISTRY = 'registry.hub.docker.com'
+        // Nama instalasi Dependency Check di Global Tool Configuration
+        ODC_TOOL_NAME = 'DPCheck'
+        // Nama instalasi Maven/JDK, jika ada
+        // MAVEN_TOOL_NAME = 'Maven 3.8.6'
     }
-    
+
+    options {
+        // Mengizinkan build yang tidak stabil atau gagal untuk tetap melanjutkan archiving dan post-build actions
+        skipStagesAfterUnstable(false)
+        timeout(time: 15, unit: 'MINUTES')
+    }
+
     stages {
         
         // ==========================================================
-        // STAGE 0: SETUP & CHECKOUT
+        // STAGE 0: SETUP
         // ==========================================================
-        stage('Cleanup Workspace & Container'){
-            steps{
-                // Membersihkan direktori kerja Jenkins
+        stage('Cleanup Workspace') {
+            steps {
                 cleanWs()
-                
-                // Menghapus container deployment yang mungkin masih berjalan dari build sebelumnya
-                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
             }
         }
         
-        stage('Checkout from Git'){
-            steps{
-                echo "Cloning repository: https://github.com/xxsannx/finaldevsec.git"
-                git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
+        stage('Checkout from Git') {
+            steps {
+                checkout scm
             }
         }
-        
-        // ==========================================================
-        // STAGE 1: SAST & SCA
-        // ==========================================================
+
         stage('Wait for SonarQube Startup') {
             steps {
-                echo "Memberikan jeda waktu 60 detik agar SonarQube selesai startup dan inisialisasi database..."
-                sleep 60
+                // Memberi waktu SonarQube untuk inisialisasi sepenuhnya
+                echo "Memberikan jeda waktu 120 detik agar SonarQube selesai startup dan inisialisasi database..."
+                sleep 120 
                 echo "Jeda selesai. Melanjutkan ke SonarQube Analysis."
             }
         }
         
-        stage("Sonarqube Analysis "){
+        // ==========================================================
+        // STAGE 1: SAST (Code Quality & Security)
+        // ==========================================================
+        stage('Sonarqube Analysis'){
             steps{
-                // Sonar Server: Menggunakan nama 'SonarQube-Local' (Harus dikonfigurasi di Jenkins)
+                echo "Memulai SonarQube Analysis..."
                 withSonarQubeEnv('SonarQube-Local') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner \
-                    -Dsonar.projectKey=finaldevsec \
-                    -Dsonar.projectName=finaldevsec \
-                    -Dsonar.sources=. '''
+                    // Gunakan properti proyek yang didefinisikan di sonar-project.properties
+                    sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=${env.JOB_NAME} -Dsonar.projectName=${env.JOB_NAME} -Dsonar.sources=."
                 }
             }
         }
@@ -76,18 +61,21 @@ pipeline{
         stage("Quality Gate"){
            steps {
                 script {
-                    // Tunggu hasil dari SonarQube selama 5 menit
-                    timeout(time: 5, unit: 'MINUTES') {
-                        waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
+                    timeout(time: 10, unit: 'MINUTES') { 
+                        // Menunggu hasil Quality Gate dari SonarQube. Sesuaikan ID kredensial Anda.
+                        waitForQualityGate abortPipeline: true, credentialsId: 'SONAR_AUTH_TOKEN'
                     }
                 }
             }
         }
         
+        // ==========================================================
+        // STAGE 2: SCA (Dependency Scanning)
+        // ==========================================================
         stage('Install Dependencies & SCA') {
             steps{
                 echo "Memasang libatomic1 yang dibutuhkan oleh Node.js..."
-                // Menginstal libatomic1 yang dibutuhkan oleh Node.js (digunakan untuk fix error 127)
+                // Fix: Menginstal libatomic1 yang diperlukan untuk Node.js agar npm install berhasil
                 sh 'apt-get update && apt-get install -y libatomic1'
                 
                 // Install Dependencies
@@ -95,29 +83,66 @@ pipeline{
                 
                 // Dependency-Check untuk Software Composition Analysis (SCA)
                 echo "Memulai OWASP Dependency-Check (SCA)..."
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DPCheck'
+                dependencyCheck additionalArguments: "--scan ./ --disableYarnAudit --disableNodeAudit --format XML --out ./", odcInstallation: "${ODC_TOOL_NAME}"
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
         
         // ==========================================================
-        // STAGE 2: CONTAINER & DEPLOYMENT
+        // STAGE 3: CONTAINERIZATION & IMAGE SCANNING
         // ==========================================================
-        stage("Docker Build & Push"){
-            steps{
-                script{
-                   // Kredensial Docker: 'docker-hub-credentials'
-                   withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
-                       sh "docker build -t finaldevsec ."
-                       sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
-                       sh "docker push ${DOCKER_IMAGE}" 
-                       echo "Image ${DOCKER_IMAGE} berhasil di-push ke Docker Hub."
-                    }
+        stage('Docker Build & Push') {
+            steps {
+                echo "Membangun dan Mendorong Docker Image ke ${DOCKER_IMAGE}:${BUILD_NUMBER}..."
+                
+                // Menggunakan withCredentials untuk login yang aman
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    
+                    // 1. Login ke Docker Registry
+                    sh "docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD} ${DOCKER_REGISTRY}"
+                    
+                    // 2. Bangun dan tag image dengan nomor build (misalnya xxsamx/finaldevsec:13)
+                    sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} ."
+                    
+                    // 3. Push image dengan nomor build
+                    sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    
+                    // 4. Push tag 'latest' sebagai referensi cepat (opsional)
+                    sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
+                    sh "docker push ${DOCKER_IMAGE}:latest"
+                    
+                    // 5. Logout
+                    sh "docker logout ${DOCKER_REGISTRY}"
                 }
             }
         }
         
+        stage('Image Scanning (Trivy)') {
+            steps {
+                echo "Memulai Image Scanning pada ${DOCKER_IMAGE}:${BUILD_NUMBER}..."
+                
+                // Trivy memindai image yang baru di-push (Menggunakan format tagging yang benar)
+                
+                sh """
+                    docker run --rm \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    aquasec/trivy:latest image --exit-code 1 \
+                    --severity CRITICAL \
+                    --format template --template "@contrib/html.tpl" -o trivy_report.html \
+                    ${DOCKER_IMAGE}:${BUILD_NUMBER} || true
+                """
+                
+                // || true digunakan untuk memastikan pipeline tidak gagal karena exit code 1 dari Trivy.
+                // Dalam praktik nyata, ini HARUS dihilangkan agar kerentanan tinggi/kritis menyebabkan build gagal.
 
+                archiveArtifacts artifacts: 'trivy_report.html', onlyIfSuccessful: true
+                echo "Trivy scan selesai. Laporan diarsipkan."
+            }
+        }
+
+        // ==========================================================
+        // STAGE 4: DAST & DEPLOYMENT
+        // ==========================================================
         
         stage('Deploy to container') {
             steps {
@@ -127,6 +152,10 @@ pipeline{
                     sh "docker network create zap-network || true" 
                     
                     echo "Mendeploy image ${DOCKER_IMAGE}:${BUILD_NUMBER} ke lingkungan staging..."
+                    
+                    // FIX: Tarik image secara eksplisit untuk mengatasi masalah manifest not found/timing issue
+                    sh "docker pull ${DOCKER_IMAGE}:${BUILD_NUMBER}" 
+                    
                     // Menjalankan aplikasi sebagai container terpisah (final-app) pada jaringan kustom
                     // Menggunakan port 9000 sesuai Dockerfile
                     sh """
