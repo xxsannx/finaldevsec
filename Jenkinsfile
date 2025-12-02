@@ -115,28 +115,26 @@ pipeline{
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 script {
-                    sh 'mkdir -p zap_reports zap_work'
-                    sh 'chmod -R 777 zap_reports zap_work'
 
-                    echo "Menunggu container up..."
+                    sh "mkdir -p zap_reports"
+                    sh "mkdir -p zap_work"
+                    sh "chmod -R 777 zap_reports zap_work"
+
+                    // kasih waktu container up
                     sleep 20
 
                     sh """
                     docker run --rm \
                     --network finaldevsec_pineus_network \
-                    -v \$(pwd)/zap_reports:/zap/reports \
-                    -v \$(pwd)/zap_work:/zap/wrk \
+                    -v $(pwd)/zap_work:/zap/wrk \
                     zaproxy/zap-stable \
-                    zap-baseline.py \
+                        zap-baseline.py \
                         -t http://pineus_tilu_nginx:80 \
-                        -r /zap/reports/zap_report.html
+                        -r /zap/wrk/report.html
                     """
                 }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
-                }
+
+                archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
             }
         }
 
