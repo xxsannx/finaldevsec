@@ -15,8 +15,7 @@ pipeline{
         
         // Nama image yang akan di-push ke Docker Hub
         DOCKER_IMAGE = "xxsamx/finaldevsec"
-        // Nama image yang sebenarnya akan menjadi ${DOCKER_IMAGE}:${BUILD_NUMBER}
-        DOCKER_REGISTRY = 'registry.hub.docker.com
+
 
         // Nama layanan Nginx di JARINGAN DOCKER COMPOSE Anda.
         // Digunakan untuk ZAP. ZAP akan menargetkan port host 8001
