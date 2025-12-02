@@ -14,7 +14,9 @@ pipeline{
         SCANNER_HOME=tool 'sonar-scanner'
         
         // Nama image yang akan di-push ke Docker Hub
-        DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
+        DOCKER_IMAGE = "xxsamx/finaldevsec"
+        // Nama image yang sebenarnya akan menjadi ${DOCKER_IMAGE}:${BUILD_NUMBER}
+        DOCKER_REGISTRY = 'registry.hub.docker.com
 
         // Nama layanan Nginx di JARINGAN DOCKER COMPOSE Anda.
         // Digunakan untuk ZAP. ZAP akan menargetkan port host 8001
@@ -121,10 +123,7 @@ pipeline{
                 echo "Memulai Image Scanning pada ${DOCKER_IMAGE}:${BUILD_NUMBER}..."
                 
                 // Trivy memindai image yang baru di-push
-                // --exit-code 1 (default): Akan gagal jika menemukan kerentanan CRITICAL/HIGH.
-                // --severity CRITICAL: Filter hanya untuk kerentanan CRITICAL.
-                // Jika ingin melewati kerentanan tinggi, ganti menjadi --severity CRITICAL.
-                // Jika ingin melewati semua kerentanan, gunakan || true di akhir.
+                // Menggunakan format tagging yang benar: ${DOCKER_IMAGE}:${BUILD_NUMBER}
                 
                 sh """
                     docker run --rm \
