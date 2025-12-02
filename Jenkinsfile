@@ -85,6 +85,10 @@ pipeline{
         
         stage('Install Dependencies & SCA') {
             steps{
+                echo "Memasang libatomic1 yang dibutuhkan oleh Node.js..."
+                // Menginstal libatomic1 yang dibutuhkan oleh Node.js (digunakan untuk fix error 127)
+                sh 'apt-get update && apt-get install -y libatomic1'
+                
                 // Install Dependencies
                 sh "npm install" 
                 
