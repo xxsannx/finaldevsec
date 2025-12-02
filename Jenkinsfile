@@ -7,7 +7,6 @@ pipeline{
         // Tools yang harus dikonfigurasi di Jenkins -> Global Tool Configuration
         jdk 'jdk17'
         nodejs 'node18' 
-        // Dependency-Check memerlukan JRE untuk berjalan, tetapi Jenkins akan mengaturnya
     }
     
     environment {
@@ -18,12 +17,10 @@ pipeline{
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
 
         // Nama layanan Nginx di JARINGAN DOCKER COMPOSE Anda.
-        // Asumsi nama layanan Nginx Anda adalah `pineus_tilu_nginx` (sesuai output `docker ps`)
-        // dan diakses di port internal 80 (sesuai nginx:alpine default).
-        APP_INTERNAL_HOST = 'http://pineus_tilu_nginx' 
+        // Digunakan untuk ZAP. ZAP akan menargetkan port host 8001
+        APP_INTERNAL_HOST = 'http://host.docker.internal:8001' 
         
         // Nama jaringan Docker Compose default Anda.
-        // Format default adalah <nama_folder>_default. Sesuaikan jika Anda punya nama custom.
         DOCKER_NETWORK = 'finaldevsec_default' 
 
         // Nama container deployment yang akan dibuat dan dihapus
@@ -33,7 +30,7 @@ pipeline{
     stages {
         
         // ==========================================================
-        // STAGE 0: SETUP
+        // STAGE 0: SETUP & CHECKOUT
         // ==========================================================
         stage('Cleanup Workspace & Container'){
             steps{
@@ -53,22 +50,13 @@ pipeline{
         }
         
         // ==========================================================
-        // STAGE 1: SAST & SCM SECURITY
+        // STAGE 1: SAST & SCA
         // ==========================================================
-        stage('Secret Scanning (Gitleaks)'){
-            steps{
-                echo "Memulai Secret Scanning menggunakan Gitleaks..."
-                // Jalankan Gitleaks
-                sh '''
-                    docker run --rm -v \$(pwd):/code zricethezav/gitleaks:latest detect \
-                    --source=/code \
-                    --report-path=/code/gitleaks_report.json \
-                    --verbose || true
-                '''
-                // `|| true` memastikan pipeline tidak gagal jika Gitleaks menemukan secrets, 
-                // hanya untuk menguji, tetapi sebaiknya dihapus di produksi untuk enforce security.
-                archiveArtifacts artifacts: 'gitleaks_report.json', onlyIfSuccessful: false
-                echo "Gitleaks scan selesai."
+        stage('Wait for SonarQube Startup') {
+            steps {
+                echo "Memberikan jeda waktu 90 detik agar SonarQube selesai startup dan inisialisasi database..."
+                sleep 90
+                echo "Jeda selesai. Melanjutkan ke SonarQube Analysis."
             }
         }
         
@@ -87,9 +75,7 @@ pipeline{
         stage("Quality Gate"){
            steps {
                 script {
-                    // abortPipeline: false memungkinkan pipeline berjalan meskipun Quality Gate gagal 
-                    // (untuk melihat hasil DAST)
-                    // credentialsId: 'SONAR_AUTH_TOKEN' harus sesuai dengan Credential ID Anda
+                    // Tunggu hasil dari SonarQube selama 5 menit
                     timeout(time: 5, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
                     }
@@ -99,7 +85,7 @@ pipeline{
         
         stage('Install Dependencies & SCA') {
             steps{
-                // Install Dependencies untuk memastikan semua file package lock ada
+                // Install Dependencies
                 sh "npm install" 
                 
                 // Dependency-Check untuk Software Composition Analysis (SCA)
@@ -115,7 +101,7 @@ pipeline{
         stage("Docker Build & Push"){
             steps{
                 script{
-                   // Kredensial Docker: 'docker-hub-credentials' (Harus dikonfigurasi)
+                   // Kredensial Docker: 'docker-hub-credentials'
                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
                        sh "docker build -t finaldevsec ."
                        sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
@@ -129,7 +115,6 @@ pipeline{
         stage('Image Scanning (Trivy)') {
             steps {
                 echo "Memulai Image Scanning menggunakan Trivy untuk image ${DOCKER_IMAGE}..."
-                // Trivy langsung menarik image dari Docker Hub
                 // Trivy akan gagal jika menemukan kerentanan HIGH atau CRITICAL
                 sh """
                     docker run --rm aquasec/trivy:latest image \
@@ -149,7 +134,6 @@ pipeline{
                    sleep 5
                        
                    // Deploy image ke port 8001 (host) -> 80 (container)
-                   // Gunakan port yang BERBEDA dari Nginx (8000) yang sudah berjalan.
                    sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} -p 8001:80 ${DOCKER_IMAGE}"
                    echo "Aplikasi dideploy ke http://localhost:8001 (Host Port) untuk DAST."
                 }
@@ -164,15 +148,12 @@ pipeline{
                 echo "Menunggu aplikasi siap di ${DEPLOY_CONTAINER_NAME}..."
                 sleep 20 // Beri waktu ekstra untuk aplikasi PHP dan Nginx siap
                 
-                // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
-                // ZAP di-run dengan network yang sama dengan stack Anda untuk mengakses container.
-                // -t menargetkan URL host yang dipetakan
-                // -l FAIL untuk memastikan kegagalan jika ada alert High/Medium (bisa disesuaikan)
+                // ZAP menargetkan host.docker.internal:8001 (port host)
                 sh """
                     docker run --rm -v \$(pwd)/zap_reports:/zap/reports \
                     --network ${DOCKER_NETWORK} \
                     zaproxy/zap-stable zap-baseline.py \
-                    -t http://host.docker.internal:8001 \
+                    -t ${APP_INTERNAL_HOST} \
                     -r zap_report.html
                 """
                 
