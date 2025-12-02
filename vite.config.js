@@ -8,4 +8,9 @@ export default defineConfig({
             refresh: true,
         }),
     ],
+    css: {
+        modules: {
+            scopeBehaviour: 'local', // default, bisa diubah 'global'
+        },
+    },
 });

@@ -1,21 +1,30 @@
 <?php
 
-// Mendefinisikan konstanta atau variabel untuk 'localhost' default
-// Menggunakan variabel lokal karena ini adalah file konfigurasi PHP, bukan file kelas.
+use Illuminate\Support\Str;
+
 $default_host = '127.0.0.1';
 
 return [
 
-    // ... bagian konfigurasi lainnya
+    /*
+    |--------------------------------------------------------------------------
+    | Default Database Connection Name
+    |--------------------------------------------------------------------------
+    */
+
+    'default' => env('DB_CONNECTION', 'mysql'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Database Connections
+    |--------------------------------------------------------------------------
+    */
 
     'connections' => [
-
-        // ... koneksi lainnya
 
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DATABASE_URL'),
-            // Menggunakan $default_host di sini
             'host' => env('DB_HOST', $default_host),
             'port' => env('DB_PORT', '3306'),
             'database' => env('DB_DATABASE', 'forge'),
@@ -36,19 +45,37 @@ return [
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DATABASE_URL'),
-            // Menggunakan $default_host di sini
             'host' => env('DB_HOST', $default_host),
             'port' => env('DB_PORT', '5432'),
             'database' => env('DB_DATABASE', 'forge'),
             'username' => env('DB_USERNAME', 'forge'),
             'password' => env('DB_PASSWORD', ''),
             'charset' => 'utf8',
-            'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_database_'),
+            'prefix' => '',
+            'schema' => 'public',
+            'sslmode' => 'prefer',
         ],
 
-        // ... koneksi lainnya
-
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Migration Repository Table
+    |--------------------------------------------------------------------------
+    |
+    | This table keeps track of all the migrations that have already run for
+    | your application. Using this information, we can determine which of
+    | the migrations on disk haven't actually been run in the database.
+    |
+    */
+
+    'migrations' => 'migrations',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Redis Databases
+    |--------------------------------------------------------------------------
+    */
 
     'redis' => [
 
@@ -56,12 +83,11 @@ return [
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),
-            'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_database_'),
+            'prefix' => Str::slug(env('APP_NAME', 'laravel'), '_').'_database_',
         ],
 
         'default' => [
             'url' => env('REDIS_URL'),
-            // Menggunakan $default_host di sini
             'host' => env('REDIS_HOST', $default_host),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -71,7 +97,6 @@ return [
 
         'cache' => [
             'url' => env('REDIS_URL'),
-            // Menggunakan $default_host di sini
             'host' => env('REDIS_HOST', $default_host),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
