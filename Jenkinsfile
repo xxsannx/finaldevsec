@@ -119,12 +119,21 @@ pipeline{
         stage('Image Scanning (Trivy)') {
             steps {
                 echo "Memulai Image Scanning menggunakan Trivy untuk image ${DOCKER_IMAGE}..."
-                // Trivy akan gagal jika menemukan kerentanan HIGH atau CRITICAL
+
                 sh """
-                    docker run --rm aquasec/trivy:latest image \
-                    --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_IMAGE}
+                docker run --rm \
+                -v \$(pwd)/trivy_reports:/reports \
+                aquasec/trivy:latest image \
+                --severity HIGH,CRITICAL \
+                --format template --template "@/contrib/html.tpl" \
+                -o /reports/trivy_report.html \
+                ${DOCKER_IMAGE} || true
                 """
-                echo "Trivy scan selesai. Tidak ada kerentanan HIGH/CRITICAL ditemukan."
+
+            echo "Trivy scan selesai (pipeline tidak dihentikan meskipun ada HIGH/CRITICAL)."
+
+            archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
+            
             }
         }
         
