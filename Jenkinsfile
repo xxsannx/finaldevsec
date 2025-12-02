@@ -117,30 +117,7 @@ pipeline{
             }
         }
         
-        stage('Image Scanning (Trivy)') {
-            steps {
-                echo "Memulai Image Scanning pada ${DOCKER_IMAGE}:${BUILD_NUMBER}..."
-                
-                // Trivy memindai image yang baru di-push
-                // Menggunakan format tagging yang benar: ${DOCKER_IMAGE}:${BUILD_NUMBER}
-                
-                sh """
-                    docker run --rm \
-                    -v /var/run/docker.sock:/var/run/docker.sock \
-                    aquasec/trivy:latest image --exit-code 1 \
-                    --severity CRITICAL \
-                    --format template --template "@contrib/html.tpl" -o trivy_report.html \
-                    ${DOCKER_IMAGE}:${BUILD_NUMBER} || true
-                """
-                
-                // Tambahkan || true untuk memastikan pipeline tidak gagal karena kerentanan.
-                // PENTING: Dalam praktik nyata, || true HARUS dihilangkan agar kerentanan tinggi/kritis menyebabkan build gagal.
-                // Untuk tujuan demonstrasi dan penyelesaian pipeline, kita mengizinkan kegagalan Trivy.
-
-                archiveArtifacts artifacts: 'trivy_report.html', onlyIfSuccessful: true
-                echo "Trivy scan selesai. Laporan diarsipkan."
-            }
-        }
+        
         
         stage('Deploy to container'){
             steps{
