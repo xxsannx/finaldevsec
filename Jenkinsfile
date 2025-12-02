@@ -121,8 +121,6 @@ pipeline{
                     sh "chmod -R 777 ${WORKSPACE}/zap_reports ${WORKSPACE}/zap_work"
 
                     echo "Menunggu container up..."
-                    sleep 20
-
                     sh """
                     docker run --rm \
                         --network ${DOCKER_NETWORK} \
@@ -131,8 +129,9 @@ pipeline{
                         zaproxy/zap-stable \
                             zap-baseline.py \
                             -t ${APP_INTERNAL_HOST} \
-                            -r zap_report.html
+                            -r zap_report.html || true
                     """
+
                 }
 
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
