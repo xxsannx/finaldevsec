@@ -112,19 +112,22 @@ pipeline{
                 sleep 20
 
                 sh "mkdir -p zap_reports"
+                sh "mkdir -p zap_work"
 
                 sh """
                 docker run --rm \
                     --add-host=host.docker.internal:host-gateway \
                     -v \$(pwd)/zap_reports:/zap/reports \
+                    -v \$(pwd)/zap_work:/zap/wrk \
                     zaproxy/zap-stable zap-baseline.py \
                     -t ${APP_INTERNAL_HOST} \
                     -r zap_report.html || true
                 """
-
+                
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', onlyIfSuccessful: false
             }
         }
+
         
         stage('Post-Deployment Cleanup'){
             steps{
