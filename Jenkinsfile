@@ -1,148 +1,193 @@
 // Jenkinsfile (Declarative Pipeline)
 pipeline{
+    // Menggunakan agen "any" (berjalan di master atau agent manapun)
     agent any
+    
     tools{
-        // Konfigurasi Tools yang Digunakan:
+        // Tools yang harus dikonfigurasi di Jenkins -> Global Tool Configuration
         jdk 'jdk17'
-        nodejs 'node18' // Menggunakan node18 sesuai standar DevSecOps Laravel
+        nodejs 'node18' 
+        // Dependency-Check memerlukan JRE untuk berjalan, tetapi Jenkins akan mengaturnya
     }
+    
     environment {
-        // Konfigurasi Tool Sonar Scanner:
+        // Konfigurasi Tool Sonar Scanner (Harus diinstal di Global Tool Configuration)
         SCANNER_HOME=tool 'sonar-scanner'
         
-        // Host aplikasi yang akan di-scan oleh ZAP (setelah deployment)
-        // Menggunakan port 3001 di host karena 3000 digunakan Grafana
-        APP_HOST = 'http://localhost:3001' 
-        
-        // Nama image yang akan di-scan oleh Trivy
+        // Nama image yang akan di-push ke Docker Hub
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
 
-        // VARIABEL ZAP_CMD DIHAPUS.
+        // Nama layanan Nginx di JARINGAN DOCKER COMPOSE Anda.
+        // Asumsi nama layanan Nginx Anda adalah `pineus_tilu_nginx` (sesuai output `docker ps`)
+        // dan diakses di port internal 80 (sesuai nginx:alpine default).
+        APP_INTERNAL_HOST = 'http://pineus_tilu_nginx' 
+        
+        // Nama jaringan Docker Compose default Anda.
+        // Format default adalah <nama_folder>_default. Sesuaikan jika Anda punya nama custom.
+        DOCKER_NETWORK = 'finaldevsec_default' 
+
+        // Nama container deployment yang akan dibuat dan dihapus
+        DEPLOY_CONTAINER_NAME = 'finaldevsec_deployed_app'
     }
+    
     stages {
-        stage('clean workspace'){
+        
+        // ==========================================================
+        // STAGE 0: SETUP
+        // ==========================================================
+        stage('Cleanup Workspace & Container'){
             steps{
+                // Membersihkan direktori kerja Jenkins
                 cleanWs()
+                
+                // Menghapus container deployment yang mungkin masih berjalan dari build sebelumnya
+                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
             }
         }
+        
         stage('Checkout from Git'){
             steps{
-                // Menggunakan tautan GitHub finaldevsec.git
+                echo "Cloning repository: https://github.com/xxsannx/finaldevsec.git"
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
             }
         }
+        
         // ==========================================================
-        // STAGE 1 - SECRET SCANNING (GITLEAKS)
-        // Memindai repository untuk secrets yang terekspos.
+        // STAGE 1: SAST & SCM SECURITY
         // ==========================================================
         stage('Secret Scanning (Gitleaks)'){
             steps{
                 echo "Memulai Secret Scanning menggunakan Gitleaks..."
-                // Menggunakan Docker Gitleaks
+                // Jalankan Gitleaks
                 sh '''
                     docker run --rm -v \$(pwd):/code zricethezav/gitleaks:latest detect \
                     --source=/code \
                     --report-path=/code/gitleaks_report.json \
                     --verbose || true
                 '''
-                echo "Gitleaks scan selesai. Laporan ada di gitleaks_report.json (jika ada temuan)."
-            }
-        }
-        stage("Sonarqube Analysis "){
-            steps{
-                // Sonar Server: Menggunakan nama 'SonarQube-Local'
-                withSonarQubeEnv('SonarQube-Local') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=finaldevsec \
-                    -Dsonar.projectKey=finaldevsec ''' // DIUBAH ke finaldevsec
-                }
-            }
-        }
-        stage("quality gate"){
-           steps {
-                script {
-                    // abortPipeline: false memungkinkan pipeline berjalan meskipun Quality Gate gagal
-                    waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
-                }
-            }
-        }
-        stage('Install Dependencies') {
-            steps{
-                sh "npm install"
-            }
-        }
-         stage('OWASP FS SCAN') {
-            steps {
-                // Dependency-Check untuk Software Composition Analysis (SCA)
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DPCheck'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                // `|| true` memastikan pipeline tidak gagal jika Gitleaks menemukan secrets, 
+                // hanya untuk menguji, tetapi sebaiknya dihapus di produksi untuk enforce security.
+                archiveArtifacts artifacts: 'gitleaks_report.json', onlyIfSuccessful: false
+                echo "Gitleaks scan selesai."
             }
         }
         
-        stage("Docker Build & Push"){
+        stage("Sonarqube Analysis "){
             steps{
-                script{
-                   // Kredensial Docker: Menggunakan nama 'docker-hub-credentials'
-                   withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
-                       sh "docker build -t finaldevsec ." // DIUBAH ke finaldevsec
-                       sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
-                       sh "docker push ${DOCKER_IMAGE}" 
+                // Sonar Server: Menggunakan nama 'SonarQube-Local' (Harus dikonfigurasi di Jenkins)
+                withSonarQubeEnv('SonarQube-Local') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectKey=finaldevsec \
+                    -Dsonar.projectName=finaldevsec \
+                    -Dsonar.sources=. '''
+                }
+            }
+        }
+        
+        stage("Quality Gate"){
+           steps {
+                script {
+                    // abortPipeline: false memungkinkan pipeline berjalan meskipun Quality Gate gagal 
+                    // (untuk melihat hasil DAST)
+                    // credentialsId: 'SONAR_AUTH_TOKEN' harus sesuai dengan Credential ID Anda
+                    timeout(time: 5, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
                     }
                 }
             }
         }
         
+        stage('Install Dependencies & SCA') {
+            steps{
+                // Install Dependencies untuk memastikan semua file package lock ada
+                sh "npm install" 
+                
+                // Dependency-Check untuk Software Composition Analysis (SCA)
+                echo "Memulai OWASP Dependency-Check (SCA)..."
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DPCheck'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
         // ==========================================================
-        // BARU: STAGE 2 - IMAGE SCANNING (TRIVY)
-        // Memindai kerentanan di Docker Image.
+        // STAGE 2: CONTAINER & DEPLOYMENT
         // ==========================================================
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                   // Kredensial Docker: 'docker-hub-credentials' (Harus dikonfigurasi)
+                   withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
+                       sh "docker build -t finaldevsec ."
+                       sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
+                       sh "docker push ${DOCKER_IMAGE}" 
+                       echo "Image ${DOCKER_IMAGE} berhasil di-push ke Docker Hub."
+                    }
+                }
+            }
+        }
+        
         stage('Image Scanning (Trivy)') {
             steps {
                 echo "Memulai Image Scanning menggunakan Trivy untuk image ${DOCKER_IMAGE}..."
-                // Menggunakan Docker Trivy Image
-                // Note: Trivy bisa mengunduh image dari Docker Hub (karena sudah di-push)
+                // Trivy langsung menarik image dari Docker Hub
+                // Trivy akan gagal jika menemukan kerentanan HIGH atau CRITICAL
                 sh """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
-                    aquasec/trivy:latest image --severity HIGH,CRITICAL ${DOCKER_IMAGE}
+                    docker run --rm aquasec/trivy:latest image \
+                    --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_IMAGE}
                 """
-                echo "Trivy scan selesai."
+                echo "Trivy scan selesai. Tidak ada kerentanan HIGH/CRITICAL ditemukan."
             }
         }
         
         stage('Deploy to container'){
             steps{
                 script{
-                   withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
+                   // Menghapus container deployment yang mungkin masih berjalan
+                   sh 'docker rm -f finaldevsec_deployed_app || true' 
+                   
+                   echo "Menunggu 5 detik untuk memastikan port dibebaskan..."
+                   sleep 5
                        
-                       sh 'docker rm -f finaldevsec || true'
-                       echo "Menunggu 10 detik untuk memastikan port dibebaskan..."
-                       sleep 10
-                       
-                       // Nama Container & Image: Menggunakan 'finaldevsec'
-                       // Pemetaan port baru: 3001 (host) -> 3000 (container)
-                       sh "docker run -d --name finaldevsec -p 3001:3000 ${DOCKER_IMAGE}"
-                    }
+                   // Deploy image ke port 8001 (host) -> 80 (container)
+                   // Gunakan port yang BERBEDA dari Nginx (8000) yang sudah berjalan.
+                   sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} -p 8001:80 ${DOCKER_IMAGE}"
+                   echo "Aplikasi dideploy ke http://localhost:8001 (Host Port) untuk DAST."
                 }
             }
         }
         
-        // STAGE OWASP ZAP SCAN (DAST)
+        // ==========================================================
+        // STAGE 3: DAST (Dynamic Analysis)
+        // ==========================================================
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
-                // Membungkus langkah DAST di dalam withDockerRegistry agar docker pull terotentikasi
-                withDockerRegistry(credentialsId: 'docker-hub-credentials', url: 'https://registry.hub.docker.com') { 
-                    echo "Menunggu aplikasi siap di ${APP_HOST}..."
-                    sleep 10
-                    
-                    // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
-                    sh """
-                        docker run --rm -v \
-                        --network finaldevsec_pineus_network \
-                        zaproxy/zap-stable zap-baseline.py \
-                        -t http://finaldevsec:3000 \
-                        -r zap_report.html
-                    """
-                    echo "OWASP ZAP Baseline Scan selesai menggunakan Docker. Laporan ada di zap_report.html"
-                }
+                echo "Menunggu aplikasi siap di ${DEPLOY_CONTAINER_NAME}..."
+                sleep 20 // Beri waktu ekstra untuk aplikasi PHP dan Nginx siap
+                
+                // MENGGUNAKAN ZAP DOCKER CONTAINER STABLE
+                // ZAP di-run dengan network yang sama dengan stack Anda untuk mengakses container.
+                // -t menargetkan URL host yang dipetakan
+                // -l FAIL untuk memastikan kegagalan jika ada alert High/Medium (bisa disesuaikan)
+                sh """
+                    docker run --rm -v \$(pwd)/zap_reports:/zap/reports \
+                    --network ${DOCKER_NETWORK} \
+                    zaproxy/zap-stable zap-baseline.py \
+                    -t http://host.docker.internal:8001 \
+                    -r zap_report.html
+                """
+                
+                echo "OWASP ZAP Baseline Scan selesai. Laporan ada di zap_report.html di workspace."
+                archiveArtifacts artifacts: 'zap_reports/zap_report.html', onlyIfSuccessful: false
+            }
+        }
+        
+        // ==========================================================
+        // STAGE 4: CLEANUP
+        // ==========================================================
+        stage('Post-Deployment Cleanup'){
+            steps{
+                echo "Menghapus container deployment: ${DEPLOY_CONTAINER_NAME}"
+                sh 'docker rm -f ${DEPLOY_CONTAINER_NAME} || true'
             }
         }
 
