@@ -7,15 +7,20 @@ pipeline{
     }
     
     environment {
-        SCANNER_HOME=tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar-scanner'
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
-        APP_INTERNAL_HOST = 'http://host.docker.internal:8001'
-        DOCKER_NETWORK = 'finaldevsec_default'
+
+        // FIX: Host NGINX di dalam network Docker
+        APP_INTERNAL_HOST = 'http://pineus_tilu_nginx:80'
+
+        // Docker network dari docker compose
+        DOCKER_NETWORK = 'finaldevsec_pineus_network'
+
         DEPLOY_CONTAINER_NAME = 'finaldevsec_deployed_app'
     }
     
     stages {
-        
+
         stage('Cleanup Workspace & Container'){
             steps{
                 cleanWs()
@@ -25,14 +30,12 @@ pipeline{
         
         stage('Checkout from Git'){
             steps{
-                echo "Cloning repository..."
                 git branch: 'main', url: 'https://github.com/xxsannx/finaldevsec.git'
             }
         }
-        
+
         stage('Wait for SonarQube Startup') {
             steps {
-                echo "Memberikan jeda 30 detik untuk SonarQube..."
                 sleep 30
             }
         }
@@ -41,15 +44,15 @@ pipeline{
             steps{
                 withSonarQubeEnv('SonarQube-Local') {
                     sh ''' $SCANNER_HOME/bin/sonar-scanner \
-                    -Dsonar.projectKey=finaldevsec \
-                    -Dsonar.projectName=finaldevsec \
-                    -Dsonar.sources=. '''
+                        -Dsonar.projectKey=finaldevsec \
+                        -Dsonar.projectName=finaldevsec \
+                        -Dsonar.sources=. '''
                 }
             }
         }
         
         stage("Quality Gate"){
-           steps {
+            steps {
                 script {
                     timeout(time: 5, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: false, credentialsId: 'SONAR_AUTH_TOKEN'
@@ -62,7 +65,6 @@ pipeline{
             steps{
                 sh 'apt-get update && apt-get install -y libatomic1'
                 sh "npm install"
-                
                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DPCheck'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
@@ -71,10 +73,10 @@ pipeline{
         stage("Docker Build & Push"){
             steps{
                 script{
-                   withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
-                       sh "docker build -t finaldevsec ."
-                       sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
-                       sh "docker push ${DOCKER_IMAGE}"
+                    withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
+                        sh "docker build -t finaldevsec ."
+                        sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
+                        sh "docker push ${DOCKER_IMAGE}"
                     }
                 }
             }
@@ -84,7 +86,7 @@ pipeline{
             steps {
                 sh """
                 docker run --rm \
-                -v \$(pwd)/trivy_reports:/reports \
+                -v ${WORKSPACE}/trivy_reports:/reports \
                 aquasec/trivy:latest image \
                 --severity HIGH,CRITICAL \
                 --format template --template "@/contrib/html.tpl" \
@@ -98,55 +100,48 @@ pipeline{
         stage('Deploy to container'){
             steps{
                 script{
-                   sh 'docker rm -f finaldevsec_deployed_app || true'
-                   sleep 5
-                   sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} -p 8001:80 ${DOCKER_IMAGE}"
-                   echo "Aplikasi berjalan di http://localhost:8001"
+                    sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
+                    sleep 5
+
+                    // FIX: tidak perlu expose host port
+                    sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} --network=${DOCKER_NETWORK} ${DOCKER_IMAGE}"
                 }
             }
         }
-        
+
+        // ======================================================
+        // 🔥 FIX ZAP DAST SCAN (target = NGINX docker service)
+        // ======================================================
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
-                echo "Menunggu aplikasi siap..."
-                sleep 20
+                script {
 
-                sh """
-                mkdir -p zap_reports zap_work
-                chmod -R 777 zap_reports zap_work
-                """
+                    sh "mkdir -p ${WORKSPACE}/zap_reports"
+                    sh "mkdir -p ${WORKSPACE}/zap_work"
+                    sh "chmod -R 777 ${WORKSPACE}/zap_reports ${WORKSPACE}/zap_work"
 
-                echo "Mengecek apakah aplikasi sudah bisa diakses..."
-                sh """
-                for i in {1..10}; do
-                    if curl -s ${APP_INTERNAL_HOST} >/dev/null; then
-                        echo "Aplikasi siap!"
-                        break
-                    fi
-                    echo "Retry (\$i/10)... waiting 5s"
-                    sleep 5
-                done
-                """
+                    echo "Menunggu container up..."
+                    sleep 20
 
-                sh """
-                docker run --rm \
-                    --add-host=host.docker.internal:host-gateway \
-                    -v \$(pwd)/zap_reports:/zap/reports \
-                    -v \$(pwd)/zap_work:/zap/wrk \
-                    zaproxy/zap-stable zap-baseline.py \
-                    -t ${APP_INTERNAL_HOST} \
-                    -r zap_report.html || true
-                """
+                    sh """
+                    docker run --rm \
+                        --network ${DOCKER_NETWORK} \
+                        -v ${WORKSPACE}/zap_reports:/zap/reports \
+                        -v ${WORKSPACE}/zap_work:/zap/wrk \
+                        zaproxy/zap-stable \
+                            zap-baseline.py \
+                            -t ${APP_INTERNAL_HOST} \
+                            -r zap_report.html
+                    """
+                }
 
-                echo "Arsipkan laporan ZAP..."
-                archiveArtifacts artifacts: 'zap_reports/zap_report.html', onlyIfSuccessful: false
+                archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
             }
         }
 
-        
         stage('Post-Deployment Cleanup'){
             steps{
-                sh 'docker rm -f ${DEPLOY_CONTAINER_NAME} || true'
+                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
             }
         }
 
