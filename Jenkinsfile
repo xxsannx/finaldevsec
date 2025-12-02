@@ -117,55 +117,67 @@ pipeline{
             }
         }
         
+
         
-        
-        stage('Deploy to container'){
-            steps{
-                script{
-                   // Menghapus container deployment yang mungkin masih berjalan
-                   sh 'docker rm -f finaldevsec_deployed_app || true' 
-                   
-                   echo "Menunggu 5 detik untuk memastikan port dibebaskan..."
-                   sleep 5
-                       
-                   // Deploy image ke port 8001 (host) -> 80 (container)
-                   sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} -p 8001:80 ${DOCKER_IMAGE}"
-                   echo "Aplikasi dideploy ke http://localhost:8001 (Host Port) untuk DAST."
+        stage('Deploy to container') {
+            steps {
+                script {
+                    echo "Membuat jaringan kustom untuk ZAP Scan..."
+                    // Membuat jaringan kustom untuk menghubungkan aplikasi dan scanner
+                    sh "docker network create zap-network || true" 
+                    
+                    echo "Mendeploy image ${DOCKER_IMAGE}:${BUILD_NUMBER} ke lingkungan staging..."
+                    // Menjalankan aplikasi sebagai container terpisah (final-app) pada jaringan kustom
+                    // Menggunakan port 9000 sesuai Dockerfile
+                    sh """
+                        docker run -d --rm \
+                        --network zap-network \
+                        --name final-app \
+                        ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                    """
+                    // Memberi waktu aplikasi untuk booting
+                    sleep 10
                 }
             }
         }
         
-        // ==========================================================
-        // STAGE 3: DAST (Dynamic Analysis)
-        // ==========================================================
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
-                echo "Menunggu aplikasi siap di ${DEPLOY_CONTAINER_NAME}..."
-                sleep 20 // Beri waktu ekstra untuk aplikasi PHP dan Nginx siap
-                
-                // ZAP menargetkan host.docker.internal:8001 (port host)
+                echo "Memulai OWASP ZAP Baseline Scan..."
+                // Menjalankan ZAP container pada jaringan yang sama (zap-network) dan menargetkan nama container aplikasi (final-app)
+                // Target URL: http://final-app:9000 (sesuai EXPOSE di Dockerfile)
                 sh """
-                    docker run --rm -v \$(pwd)/zap_reports:/zap/reports \
-                    --network ${DOCKER_NETWORK} \
-                    zaproxy/zap-stable zap-baseline.py \
-                    -t ${APP_INTERNAL_HOST} \
-                    -r zap_report.html
+                    docker run --rm \
+                    --network zap-network \
+                    -v ${PWD}:/zap/reports \
+                    owasp/zap2docker-weekly zap-baseline.py \
+                    -t http://final-app:9000 \
+                    -r zap-baseline-report.xml || true
                 """
                 
-                echo "OWASP ZAP Baseline Scan selesai. Laporan ada di zap_report.html di workspace."
-                archiveArtifacts artifacts: 'zap_reports/zap_report.html', onlyIfSuccessful: false
-            }
-        }
-        
-        // ==========================================================
-        // STAGE 4: CLEANUP
-        // ==========================================================
-        stage('Post-Deployment Cleanup'){
-            steps{
-                echo "Menghapus container deployment: ${DEPLOY_CONTAINER_NAME}"
-                sh 'docker rm -f ${DEPLOY_CONTAINER_NAME} || true'
+                archiveArtifacts artifacts: 'zap-baseline-report.xml', onlyIfSuccessful: true
+                echo "OWASP ZAP Baseline Scan selesai. Laporan diarsipkan."
             }
         }
 
+        // ==========================================================
+        // STAGE 5: CLEANUP
+        // ==========================================================
+        stage('Post-Deployment Cleanup') {
+            steps {
+                echo "Menghapus image lokal..."
+                sh "docker rmi ${DOCKER_IMAGE}:${BUILD_NUMBER} || true"
+                
+                script {
+                    echo "Menghentikan, menghapus kontainer aplikasi, dan membersihkan jaringan kustom..."
+                    // Menghentikan dan menghapus kontainer aplikasi
+                    sh "docker stop final-app || true"
+                    sh "docker rm final-app || true"
+                    
+                    // Menghapus jaringan kustom ZAP
+                    sh "docker network rm zap-network || true"
+                }
+            }
+        }
     }
 }
