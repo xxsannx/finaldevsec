@@ -1,7 +1,6 @@
 pipeline {
-    agent {
-        any 
-    }
+    // FIX 1 & 2: Kembali ke sintaks 'agent any' yang benar untuk Declarative Pipeline
+    agent any
     
     environment {
         // Nama repositori Docker Hub Anda. Tag akan ditambahkan secara otomatis dengan nomor build.
@@ -14,8 +13,8 @@ pipeline {
     }
 
     options {
-        // Mengizinkan build yang tidak stabil atau gagal untuk tetap melanjutkan archiving dan post-build actions
-        skipStagesAfterUnstable(false)
+        // FIX 3: Menghapus skipStagesAfterUnstable(false) karena sintaksnya tidak valid.
+        // Pipeline akan tetap berjalan karena adanya || true di stage scan.
         timeout(time: 15, unit: 'MINUTES')
     }
 
@@ -106,6 +105,7 @@ pipeline {
                     
                     // 3. Push image dengan nomor build
                     sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    
                     
                     // 5. Logout
                     sh "docker logout ${DOCKER_REGISTRY}"
