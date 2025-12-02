@@ -22,7 +22,7 @@ pipeline{
         APP_INTERNAL_HOST = 'http://host.docker.internal:8001' 
         
         // Nama jaringan Docker Compose default Anda.
-        DOCKER_NETWORK = 'finaldevsec_default' 
+        DOCKER_NETWORK = 'finaldevsec_default:latest'
 
         // Nama container deployment yang akan dibuat dan dihapus
         DEPLOY_CONTAINER_NAME = 'finaldevsec_deployed_app'
