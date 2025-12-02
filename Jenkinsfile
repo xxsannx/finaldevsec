@@ -116,24 +116,28 @@ pipeline{
             steps {
                 script {
 
+                    // Folder untuk report
                     sh "mkdir -p zap_reports"
                     sh "mkdir -p zap_work"
                     sh "chmod -R 777 zap_reports zap_work"
 
-                    // kasih waktu container up
+                    // Tunggu aplikasi benar-benar up
                     sleep 20
 
+                    // Jalankan ZAP baseline scan
                     sh """
                     docker run --rm \
-                    --network finaldevsec_pineus_network \
-                    -v $(pwd)/zap_work:/zap/wrk \
-                    zaproxy/zap-stable \
-                        zap-baseline.py \
-                        -t http://pineus_tilu_nginx:80 \
-                        -r /zap/wrk/report.html
+                        --network ${DOCKER_NETWORK} \
+                        -v ${WORKSPACE}/zap_reports:/zap/reports \
+                        -v ${WORKSPACE}/zap_work:/zap/wrk \
+                        zaproxy/zap-stable \
+                            zap-baseline.py \
+                            -t ${APP_INTERNAL_HOST} \
+                            -r /zap/reports/zap_report.html
                     """
                 }
 
+                // Arsipkan report ZAP
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
             }
         }
