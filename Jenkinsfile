@@ -54,8 +54,8 @@ pipeline{
         // ==========================================================
         stage('Wait for SonarQube Startup') {
             steps {
-                echo "Memberikan jeda waktu 90 detik agar SonarQube selesai startup dan inisialisasi database..."
-                sleep 90
+                echo "Memberikan jeda waktu 60 detik agar SonarQube selesai startup dan inisialisasi database..."
+                sleep 60
                 echo "Jeda selesai. Melanjutkan ke SonarQube Analysis."
             }
         }
