@@ -81,13 +81,12 @@ pipeline{
         stage('Image Scanning (Trivy)') {
             steps {
                 sh """
-                mkdir -p ${WORKSPACE}/trivy_reports
                 docker run --rm \
                 -v ${WORKSPACE}/trivy_reports:/reports \
                 aquasec/trivy:latest image \
                 --severity HIGH,CRITICAL \
-                --format template --template "@/contrib/html.tpl" \
-                -o /reports/trivy_report.html \
+                --format json \
+                -o /reports/trivy_report.json \
                 ${DOCKER_IMAGE} || true
                 """
                 archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
