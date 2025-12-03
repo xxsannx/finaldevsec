@@ -10,20 +10,23 @@ pipeline{
         SCANNER_HOME = tool 'sonar-scanner'
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
 
+        // Variabel Host Internal untuk ZAP/Locust
         APP_INTERNAL_HOST = 'http://nginx:80' 
+
         COMPOSE_FILE = 'docker-compose.yml' 
         
-        // Asumsi nama network yang dibuat oleh docker compose adalah 'finaldevsec_pineus_network' (nama folder + nama network)
-        // Jika hanya 'pineus_network', ganti variabel ini. Saya gunakan nama lengkap untuk keamanan.
-        COMPOSE_NETWORK_NAME = 'finaldevsec_pineus_network'
+        // Nama network yang dibuat oleh docker compose (Asumsi: nama folder + nama network)
+        COMPOSE_NETWORK_NAME = 'finaldevsec_pineus_network' 
     }
     
     stages {
 
-        stage('Cleanup Workspace & Container'){
+        stage('Cleanup Workspace & Stack'){
             steps{
                 cleanWs()
-                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
+                // Menghentikan dan menghapus semua container dari compose file sebelum memulai proses.
+                // Tidak ada lagi sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
+                sh "docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true" 
             }
         }
         
@@ -35,6 +38,9 @@ pipeline{
 
         stage('Wait for SonarQube Startup') {
             steps {
+                // SonarQube dijalankan secara terpisah sebelum analisis
+                sh "docker-compose -f ${COMPOSE_FILE} up -d sonarqube"
+                echo "Waiting 30 seconds for SonarQube to start..."
                 sleep 30
             }
         }
@@ -45,7 +51,8 @@ pipeline{
                     sh ''' $SCANNER_HOME/bin/sonar-scanner \
                         -Dsonar.projectKey=finaldevsec \
                         -Dsonar.projectName=finaldevsec \
-                        -Dsonar.sources=. '''
+                        -Dsonar.sources=. \
+                        -Dsonar.python.version=3.9 '''
                 }
             }
         }
@@ -62,6 +69,7 @@ pipeline{
         
         stage('Install Dependencies & SCA') {
             steps{
+                // Menginstall dependensi di agent Jenkins
                 sh 'apt-get update && apt-get install -y libatomic1'
                 sh "npm install"
                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DPCheck'
@@ -73,8 +81,11 @@ pipeline{
             steps{
                 script{
                     withDockerRegistry(credentialsId: 'docker-hub-credentials', toolName: 'docker'){
-                        sh "docker build -t finaldevsec ."
-                        sh "docker tag finaldevsec ${DOCKER_IMAGE}" 
+                        // 1. Build image 'app' (pineus_tilu_app) menggunakan Dockerfile lokal
+                        sh "docker-compose -f ${COMPOSE_FILE} build app" 
+                        // 2. Tag image yang baru dibuild (Asumsi nama image: finaldevsec_app)
+                        sh "docker tag finaldevsec_app ${DOCKER_IMAGE}" 
+                        // 3. Push ke Docker Hub
                         sh "docker push ${DOCKER_IMAGE}"
                     }
                 }
@@ -83,12 +94,14 @@ pipeline{
         
         stage('Image Scanning (Trivy)') {
             steps {
+                sh "mkdir -p trivy_reports"
+
                 sh """
                 docker run --rm \
                 -v ${WORKSPACE}/trivy_reports:/reports \
                 aquasec/trivy:latest image \
                 --severity HIGH,CRITICAL \
-                --format template --template "@/contrib/html.tpl" \
+                --format template --template "@contrib/html.tpl" \
                 -o /reports/trivy_report.html \
                 ${DOCKER_IMAGE} || true
                 """
@@ -100,6 +113,8 @@ pipeline{
             steps{
                 script{
                     echo "Deploying full stack using docker-compose.yml..."
+                    // Menjalankan semua service: app, nginx, db, redis, prometheus, grafana, node_exporter, locust
+                    // Sonarqube diabaikan karena sudah dijalankan sebelumnya
                     sh "docker-compose -f ${COMPOSE_FILE} up -d --build --remove-orphans"
 
                     echo "Waiting 60 seconds for all services to stabilize..."
@@ -111,7 +126,6 @@ pipeline{
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 sh "mkdir -p zap_reports"
-                // 🔥 Tambahkan direktori kerja untuk ZAP
                 sh "mkdir -p zap_working_dir" 
                 
                 script {
@@ -127,7 +141,6 @@ pipeline{
                     """
                 }
                 
-                // Hapus direktori kerja setelah ZAP selesai
                 sh "rm -rf zap_working_dir"
 
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
@@ -173,6 +186,7 @@ pipeline{
         stage('Post-Deployment Cleanup'){
             steps{
                 echo "Shutting down full stack..."
+                // Menghentikan dan menghapus semua container (termasuk Sonarqube dan Jenkins)
                 sh "docker-compose -f ${COMPOSE_FILE} down"
             }
         }
