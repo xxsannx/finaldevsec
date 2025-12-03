@@ -81,20 +81,14 @@ pipeline{
         stage('Image Scanning (Trivy)') {
             steps {
                 sh """
-                mkdir -p '${WORKSPACE}/trivy_reports'
-                chmod -R 777 '${WORKSPACE}/trivy_reports'
-
+                mkdir -p ${WORKSPACE}/trivy_reports
                 docker run --rm \
-                    --user $(id -u):$(id -g) \
-                    -v '${WORKSPACE}/trivy_reports:/reports' \
-                    aquasec/trivy:latest image \
-                    --severity HIGH,CRITICAL \
-                    --format template \
-                    --template "/usr/local/share/trivy/templates/html.tpl" \
-                    -o /reports/trivy_report.html \
-                    ${DOCKER_IMAGE} || true
-
-                ls -lah '${WORKSPACE}/trivy_reports'
+                -v ${WORKSPACE}/trivy_reports:/trivy/reports \
+                aquasec/trivy:latest image \
+                --severity HIGH,CRITICAL \
+                --format json \
+                -o /reports/trivy_report.json \
+                ${DOCKER_IMAGE} || true
                 """
                 archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
             }
@@ -104,26 +98,17 @@ pipeline{
             steps {
                 script {
                     sh """
-                    mkdir -p '${WORKSPACE}/zap_reports'
-                    chmod -R 777 '${WORKSPACE}/zap_reports'
-                    ls -lah '${WORKSPACE}'
-
-                    echo "=== NETWORK TEST: ${DOCKER_NETWORK} -> ${APP_TARGET_URL} ==="
-                    docker run --rm --network '${DOCKER_NETWORK}' busybox \
-                        wget -O- '${APP_TARGET_URL}' || echo '[WARN] Target tidak bisa diakses!'
-
+                    mkdir -p ${WORKSPACE}/zap_reports
                     docker run --rm \
-                        --network '${DOCKER_NETWORK}' \
-                        -v '${WORKSPACE}/zap_reports:/zap/reports' \
+                        --network ${DOCKER_NETWORK} \
+                        -v ${WORKSPACE}/zap_reports:/zap/reports \
                         zaproxy/zap-stable \
                         zap-baseline.py \
-                        -t '${APP_TARGET_URL}' \
+                        -t ${APP_TARGET_URL} \
                         -r zap_report.html \
                         -I || true
-
-                    echo "=== CHECK ZAP REPORT OUTPUT ==="
-                    ls -lah '${WORKSPACE}/zap_reports'
                     """
+                    sh "ls -la ${WORKSPACE}/zap_reports/ || true"
                     archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
                 }
             }
