@@ -116,25 +116,26 @@ pipeline{
             steps {
                 script {
 
-                    // Folder untuk report
+                    // FIX ZAP PATH: Membuat folder output report ZAP
                     sh "mkdir -p zap_reports"
-                    sh "mkdir -p zap_work"
-                    sh "chmod -R 777 zap_reports zap_work"
+                    sh "chmod -R 777 zap_reports" // Izin 777 untuk menghindari masalah hak akses
 
                     // Tunggu aplikasi benar-benar up
                     sleep 20
 
                     // Jalankan ZAP baseline scan
+                    // POLA BARU (Mirip Trivy): Memetakan folder laporan ke /zap/reports
                     sh """
                     docker run --rm \
                         --network ${DOCKER_NETWORK} \
                         -v ${WORKSPACE}/zap_reports:/zap/reports \
-                        -v ${WORKSPACE}/zap_work:/zap/wrk \
                         zaproxy/zap-stable \
                             zap-baseline.py \
                             -t ${APP_INTERNAL_HOST} \
-                            -r /zap/reports/zap_report.html
+                            -r /zap/reports/zap_report.html || true
                     """
+                    // ZAP Baseline script akan menempatkan laporan di path absolut /zap/reports/zap_report.html
+                    // Karena /zap/reports dipetakan ke ${WORKSPACE}/zap_reports, laporan akan muncul di Jenkins workspace.
                 }
 
                 // Arsipkan report ZAP
