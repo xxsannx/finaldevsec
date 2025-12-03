@@ -80,36 +80,44 @@ pipeline{
         
         stage('Image Scanning (Trivy)') {
             steps {
-                sh """
+                sh '''
                 mkdir -p ${WORKSPACE}/trivy_reports
                 docker run --rm \
-                -v ${WORKSPACE}/trivy_reports:/trivy/reports \
+                -v ${WORKSPACE}/trivy_reports:/reports \
+                -v /var/run/docker.sock:/var/run/docker.sock \
                 aquasec/trivy:latest image \
-                --severity HIGH,CRITICAL \
-                --format json \
-                -o /reports/trivy_report.json \
-                ${DOCKER_IMAGE} || true
-                """
-                archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
+                --format template \
+                --template "@contrib/html.tpl" \
+                --output /reports/trivy_report.html \
+                your-image-name:tag || true
+
+            '''
             }
-        }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
+                    }
+                }
 
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 script {
-                    sh """
+                    sh '''
                     mkdir -p ${WORKSPACE}/zap_reports
                     docker run --rm \
-                        --network ${DOCKER_NETWORK} \
-                        -v ${WORKSPACE}/zap_reports:/zap/reports \
-                        zaproxy/zap-stable \
-                        zap-baseline.py \
-                        -t ${APP_TARGET_URL} \
-                        -r zap_report.html \
-                        -I || true
-                    """
-                    sh "ls -la ${WORKSPACE}/zap_reports/ || true"
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
+                    --network finaldevsec_pineus_network \
+                    -v ${WORKSPACE}/zap_reports:/zap/wrk \
+                    zaproxy/zap-stable \
+                    zap-baseline.py \
+                    -t http://nginx:80 \
+                    -r zap_report.html \
+                    -I || true
+                '''
+            }
+            post {
+                always {
+            archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
+            
                 }
             }
         }
