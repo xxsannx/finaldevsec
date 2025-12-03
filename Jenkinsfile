@@ -11,7 +11,7 @@ pipeline{
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
         
         // Sesuai docker-compose.yml
-        DOCKER_NETWORK = 'pineus_network'
+        DOCKER_NETWORK = 'finaldevsec_pineus_network'
         SONARQUBE_HOST = 'http://sonarqube:9000'
         APP_TARGET_URL = 'http://nginx:80'
     }
