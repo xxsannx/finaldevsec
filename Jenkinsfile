@@ -113,18 +113,7 @@ pipeline{
         // 🔥 FIX ZAP DAST SCAN (target = NGINX docker service)
         // ======================================================
         stage('OWASP ZAP SCAN (Baseline)') {
-            steps {
-                script {
-
-                    // FIX ZAP PATH: Membuat folder output report ZAP
-                    sh "mkdir -p zap_reports"
-                    sh "chmod -R 777 zap_reports" // Izin 777 untuk menghindari masalah hak akses
-
-                    // Tunggu aplikasi benar-benar up
-                    sleep 20
-
-                    // Jalankan ZAP baseline scan
-                    // POLA BARU (Mirip Trivy): Memetakan folder laporan ke /zap/reports
+            steps { 
                     sh """
                     docker run --rm \
                         --network ${DOCKER_NETWORK} \
@@ -134,11 +123,7 @@ pipeline{
                             -t ${APP_INTERNAL_HOST} \
                             -r /zap/reports/zap_report.html || true
                     """
-                    // ZAP Baseline script akan menempatkan laporan di path absolut /zap/reports/zap_report.html
-                    // Karena /zap/reports dipetakan ke ${WORKSPACE}/zap_reports, laporan akan muncul di Jenkins workspace.
-                }
 
-                // Arsipkan report ZAP
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
             }
         }
