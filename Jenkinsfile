@@ -85,12 +85,13 @@ pipeline{
                 docker run --rm \
                 -v ${WORKSPACE}/trivy_reports:/reports \
                 aquasec/trivy image \
-                --format html \
+                --format template \
+                --template '@contrib/html.tpl' \
                 --severity HIGH,CRITICAL \
                 --output /reports/trivy_report.html \
                 ${DOCKER_IMAGE}
                 """
-                archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: false
             }
         }
 
