@@ -10,21 +10,17 @@ pipeline{
         SCANNER_HOME = tool 'sonar-scanner'
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
         
-        // Missing variables - now defined
-        DEPLOY_CONTAINER_NAME = 'finaldevsec-app'
-        DOCKER_NETWORK = 'finaldevsec_pineus_network'
-        
-        APP_INTERNAL_HOST = 'http://nginx:80' 
-        COMPOSE_FILE = 'docker-compose.yml' 
-        COMPOSE_NETWORK_NAME = 'finaldevsec_pineus_network' 
+        // Sesuai docker-compose.yml
+        DOCKER_NETWORK = 'pineus_network'
+        SONARQUBE_HOST = 'http://sonarqube:9000'
+        APP_TARGET_URL = 'http://nginx:80'
     }
     
     stages {
 
-        stage('Cleanup Workspace & Container'){
+        stage('Cleanup Workspace'){
             steps{
                 cleanWs()
-                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
             }
         }
         
@@ -34,9 +30,9 @@ pipeline{
             }
         }
 
-        stage('Wait for SonarQube Startup') {
+        stage('Wait for Services') {
             steps {
-                sleep 30
+                sleep 15
             }
         }
         
@@ -85,6 +81,7 @@ pipeline{
         stage('Image Scanning (Trivy)') {
             steps {
                 sh """
+                mkdir -p ${WORKSPACE}/trivy_reports
                 docker run --rm \
                 -v ${WORKSPACE}/trivy_reports:/reports \
                 aquasec/trivy:latest image \
@@ -96,43 +93,26 @@ pipeline{
                 archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
             }
         }
-        
-        stage('Deploy to container'){
-            steps{
-                script{
-                    sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
-                    sleep 5
-                    sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} --network=${DOCKER_NETWORK} ${DOCKER_IMAGE}"
-                }
-            }
-        }
 
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 script {
                     sh """
+                    mkdir -p ${WORKSPACE}/zap_reports
                     docker run --rm \
                         --network ${DOCKER_NETWORK} \
                         -v ${WORKSPACE}/zap_reports:/zap/wrk \
                         zaproxy/zap-stable \
                         zap-baseline.py \
-                        -t ${APP_INTERNAL_HOST} \
+                        -t ${APP_TARGET_URL} \
                         -r zap_report.html \
                         -I || true
                     """
                     
-                    sh "mkdir -p ${WORKSPACE}/zap_reports || true"
-                    sh "docker run --rm --network ${DOCKER_NETWORK} -v ${WORKSPACE}/zap_reports:/zap/wrk zaproxy/zap-stable cp zap_report.html /zap/wrk/ || true"
+                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
                 }
-                
-                archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
             }
         }
 
-        stage('Post-Deployment Cleanup'){
-            steps{
-                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
-            }
-        }
     }
 }
