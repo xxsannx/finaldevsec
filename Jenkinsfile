@@ -84,13 +84,11 @@ pipeline{
                 mkdir -p ${WORKSPACE}/trivy_reports
                 docker run --rm \
                 -v ${WORKSPACE}/trivy_reports:/reports \
-                -v /var/run/docker.sock:/var/run/docker.sock \
-                aquasec/trivy:latest image \
-                --format template \
-                --template "@contrib/html.tpl" \
+                aquasec/trivy image \
+                --format html \
                 --severity HIGH,CRITICAL \
-                -output /reports/trivy_report.html \
-                ${DOCKER_IMAGE} || true
+                --output /reports/trivy_report.html \
+                ${DOCKER_IMAGE}
                 """
                 archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
             }
@@ -99,22 +97,25 @@ pipeline{
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 script {
+                    // Optional: wait + verify target is reachable
+                    sh """
+                    echo "Waiting for nginx to be ready..."
+                    docker run --rm --network ${DOCKER_NETWORK} curlimages/curl:latest \
+                    -f --retry 10 --retry-delay 5 --retry-connrefused \
+                    http://nginx:80 || exit 1
+                    """
+
                     sh """
                     mkdir -p ${WORKSPACE}/zap_reports
                     docker run --rm \
-                        --network finaldevsec_pineus_network \
-                        -v ${WORKSPACE}/zap_reports:/zap/wrk \
-                        zaproxy/zap-stable \
-                        zap-baseline.py \
-                        -t http://nginx:80 \
-                        -r zap_report.html \
-                        -I || true
+                    --network ${DOCKER_NETWORK} \
+                    -v ${WORKSPACE}/zap_reports:/zap/wrk:Z \
+                    zaproxy/zap-stable zap-baseline.py \
+                    -t ${APP_TARGET_URL} \
+                    -r zap_report.html
                     """
-                    sh "ls -la ${WORKSPACE}/zap_reports/ || true"
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
+                    sh "ls -la ${WORKSPACE}/zap_reports/"
+                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
                 }
             }
         }
-
-    }
-}
