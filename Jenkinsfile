@@ -114,18 +114,18 @@ pipeline{
                 script {
                     sh """
                         mkdir -p ${WORKSPACE}/zap_reports
-                        docker run --rm \
-                        --network ${DOCKER_NETWORK} \
-                        -v ${WORKSPACE}/zap_reports:/zap/wrk \
-                        zaproxy/zap-stable \
-                        zap-baseline.py \
-                            -t ${APP_TARGET_URL} \
-                            -r zap_report.html \
-                            -I
+                        docker run --rm \\
+                            --network ${DOCKER_NETWORK} \\
+                            -v ${WORKSPACE}/zap_reports:/zap/wrk \\
+                            zaproxy/zap-stable \\
+                            zap-baseline.py \\
+                                -t ${APP_TARGET_URL} \\
+                                -r /zap/wrk/zap_report.html \\
+                                -I
                     """
                     // Confirm report exists
                     sh "ls -la ${WORKSPACE}/zap_reports/"
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
                 }
             }
         }
