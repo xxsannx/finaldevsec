@@ -112,25 +112,20 @@ pipeline{
         stage('OWASP ZAP SCAN (Baseline)') {
             steps {
                 script {
-                    // Optional: wait + verify target is reachable
                     sh """
-                    echo "Waiting for nginx to be ready..."
-                    docker run --rm --network ${DOCKER_NETWORK} curlimages/curl:latest \
-                    -f --retry 10 --retry-delay 5 --retry-connrefused \
-                    http://nginx:80 || exit 1
+                        mkdir -p ${WORKSPACE}/zap_reports
+                        docker run --rm \
+                        --network ${DOCKER_NETWORK} \
+                        -v ${WORKSPACE}/zap_reports:/zap/wrk \
+                        zaproxy/zap-stable \
+                        zap-baseline.py \
+                            -t ${APP_TARGET_URL} \
+                            -r zap_report.html \
+                            -I
                     """
-
-                    sh """
-                    mkdir -p ${WORKSPACE}/zap_reports
-                    docker run --rm \
-                    --network ${DOCKER_NETWORK} \
-                    -v ${WORKSPACE}/zap_reports:/zap/wrk:Z \
-                    zaproxy/zap-stable zap-baseline.py \
-                    -t ${APP_TARGET_URL} \
-                    -r zap_report.html
-                    """
+                    // Confirm report exists
                     sh "ls -la ${WORKSPACE}/zap_reports/"
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
+                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: true
                 }
             }
         }
