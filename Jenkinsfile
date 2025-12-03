@@ -81,13 +81,21 @@ pipeline{
         stage('Image Scanning (Trivy)') {
             steps {
                 sh """
+                mkdir -p ${WORKSPACE}/trivy_reports
+                chmod -R 777 ${WORKSPACE}/trivy_reports
+
                 docker run --rm \
-                -v ${WORKSPACE}/trivy_reports:/reports \
-                aquasec/trivy:latest image \
-                --severity HIGH,CRITICAL \
-                --format json \
-                -o /reports/trivy_report.json \
-                ${DOCKER_IMAGE} || true
+                    --user $(id -u):$(id -g) \
+                    -v ${WORKSPACE}/trivy_reports:/reports \
+                    aquasec/trivy:latest image \
+                    --severity HIGH,CRITICAL \
+                    --format template \
+                    --template "/usr/local/share/trivy/templates/html.tpl" \
+                    -o /reports/trivy_report.html \
+                    ${DOCKER_IMAGE} || true
+
+                echo "--- TRIVY REPORT DIRECTORY ---"
+                ls -lah ${WORKSPACE}/trivy_reports
                 """
                 archiveArtifacts artifacts: 'trivy_reports/trivy_report.html', allowEmptyArchive: true
             }
