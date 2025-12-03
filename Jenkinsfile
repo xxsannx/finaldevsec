@@ -10,13 +10,12 @@ pipeline{
         SCANNER_HOME = tool 'sonar-scanner'
         DOCKER_IMAGE = "xxsamx/finaldevsec:latest"
 
-        // FIX: Host NGINX di dalam network Docker
-        APP_INTERNAL_HOST = 'http://pineus_tilu_nginx:80'
-
-        // Docker network dari docker compose
-        DOCKER_NETWORK = 'finaldevsec_pineus_network'
-
-        DEPLOY_CONTAINER_NAME = 'finaldevsec_deployed_app'
+        APP_INTERNAL_HOST = 'http://nginx:80' 
+        COMPOSE_FILE = 'docker-compose.yml' 
+        
+        // Asumsi nama network yang dibuat oleh docker compose adalah 'finaldevsec_pineus_network' (nama folder + nama network)
+        // Jika hanya 'pineus_network', ganti variabel ini. Saya gunakan nama lengkap untuk keamanan.
+        COMPOSE_NETWORK_NAME = 'finaldevsec_pineus_network'
     }
     
     stages {
@@ -97,42 +96,84 @@ pipeline{
             }
         }
         
-        stage('Deploy to container'){
+        stage('Deploy Full Stack & Observability'){
             steps{
                 script{
-                    sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
-                    sleep 5
+                    echo "Deploying full stack using docker-compose.yml..."
+                    sh "docker-compose -f ${COMPOSE_FILE} up -d --build --remove-orphans"
 
-                    // FIX: tidak perlu expose host port
-                    sh "docker run -d --name ${DEPLOY_CONTAINER_NAME} --network=${DOCKER_NETWORK} ${DOCKER_IMAGE}"
+                    echo "Waiting 60 seconds for all services to stabilize..."
+                    sleep 60
                 }
             }
         }
 
-        // ======================================================
-        // 🔥 FIX ZAP DAST SCAN (target = NGINX docker service)
-        // ======================================================
         stage('OWASP ZAP SCAN (Baseline)') {
-            steps { 
+            steps {
+                sh "mkdir -p zap_reports"
+                // 🔥 Tambahkan direktori kerja untuk ZAP
+                sh "mkdir -p zap_working_dir" 
+                
+                script {
                     sh """
                     docker run --rm \
-                        --network ${DOCKER_NETWORK} \
+                        --network ${COMPOSE_NETWORK_NAME} \
                         -v ${WORKSPACE}/zap_reports:/zap/reports \
+                        -v ${WORKSPACE}/zap_working_dir:/zap/wrk \
                         zaproxy/zap-stable \
                             zap-baseline.py \
                             -t ${APP_INTERNAL_HOST} \
                             -r /zap/reports/zap_report.html || true
                     """
+                }
+                
+                // Hapus direktori kerja setelah ZAP selesai
+                sh "rm -rf zap_working_dir"
 
                 archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
             }
         }
+        
+        stage('Generate Load Test Traffic (Locust)'){
+            steps{
+                script{
+                    sh 'apt-get update && apt-get install -y curl'
+                    
+                    echo "Starting Load Test using Locust service (pineus_tilu_locust)..."
 
+                    sh """
+                    docker run --rm \
+                        --network ${COMPOSE_NETWORK_NAME} \
+                        appropriate/curl \
+                        bash -c '
+                            echo "Starting Locust run..."
+                            curl -X POST http://pineus_tilu_locust:8089/run -d "locust_count=5&hatch_rate=1" || true
+                        '
+                    """
+                    
+                    echo "Waiting 30 seconds for load generation (adjust as needed)..."
+                    sleep 30
+                    
+                    sh """
+                    docker run --rm \
+                        --network ${COMPOSE_NETWORK_NAME} \
+                        appropriate/curl \
+                        bash -c '
+                            echo "Stopping Locust run..."
+                            curl -X GET http://pineus_tilu_locust:8089/stop' || true
+                        '
+                    """
+                    
+                    echo "Load test completed. Metrics/Traces are recorded in Prometheus/Grafana/Jaeger."
+                }
+            }
+        }
 
 
         stage('Post-Deployment Cleanup'){
             steps{
-                sh "docker rm -f ${DEPLOY_CONTAINER_NAME} || true"
+                echo "Shutting down full stack..."
+                sh "docker-compose -f ${COMPOSE_FILE} down"
             }
         }
 
