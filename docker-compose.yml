@@ -168,6 +168,19 @@ services:
             - /:/host:ro,rslave
         networks:
             - pineus_network
+    
+      # 12. Nginx Prometheus Exporter
+    nginx_exporter:
+        image: nginx/nginx-prometheus-exporter:0.11.0
+        container_name: pineus_tilu_nginx_exporter
+        restart: unless-stopped
+        command: -nginx.scrape-uri http://nginx:80/stub_status
+        ports:
+            - "9113:9113"
+        networks:
+            - pineus_network
+        depends_on:
+            - nginx
 
     # 10. Locust Load Testing Service (Traffic Generation)
     locust:
@@ -196,6 +209,7 @@ services:
         command: zap-webswing.sh 
         networks:
             - pineus_network
+      
 
 networks:
     pineus_network:

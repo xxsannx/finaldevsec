@@ -121,8 +121,7 @@ pipeline{
                         zaproxy/zap-stable \\
                         zap-baseline.py \\
                             -t ${APP_TARGET_URL} \\
-                            -r zap_report.html \\
-                            -I
+                            -r zap_report.html
                     """
                     // Confirm report exists
                     sh "ls -la ${WORKSPACE}/zap_reports/"

@@ -1,11 +1,22 @@
 global:
+  # Atur interval scraping global ke 15 detik.
   scrape_interval: 15s
 
+# Konfigurasi Jobs Scraping
 scrape_configs:
+  # 1. Job untuk mengumpulkan metrics dari Prometheus itu sendiri
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
+  # 2. Job untuk mengumpulkan metrics dari Node Exporter (System Host Metrics)
   - job_name: 'node_exporter'
     static_configs:
+      # Gunakan nama service Docker Compose untuk Node Exporter
       - targets: ['node_exporter:9100']
+
+  # 3. Job untuk mengumpulkan metrics dari Nginx Exporter
+  - job_name: 'nginx'
+    static_configs:
+      # Gunakan nama service Docker Compose untuk Nginx Exporter
+      - targets: ['nginx_exporter:9113']
