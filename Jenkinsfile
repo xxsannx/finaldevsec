@@ -121,11 +121,12 @@ pipeline{
                         zaproxy/zap-stable \\
                         zap-baseline.py \\
                             -t ${APP_TARGET_URL} \\
-                            -r zap_report.html
+                            -r zap_report.html \
+                            -x zap_report.xml
+                            
                     """
                     // Confirm report exists
-                    sh "ls -la ${WORKSPACE}/zap_reports/"
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
+                   
                 }
             }
         }
