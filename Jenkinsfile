@@ -113,26 +113,20 @@ pipeline{
             steps {
                 script {
                     sh """
-                        mkdir -p ${WORKSPACE}/zap_reports
+                       mkdir -p ${WORKSPACE}/zap_reports
                         docker run --rm \\
-                            --network ${DOCKER_NETWORK} \\
-                            -v ${WORKSPACE}/zap_reports:/zap/wrk \\
-                            -w /zap/wrk \\
-                            zaproxy/zap-stable \\
-                            zap-baseline.py \\
-                                -t ${APP_TARGET_URL} \\
-                                -r zap_report.html \\
-                                -I
+                        --network ${DOCKER_NETWORK} \\
+                        -v ${WORKSPACE}/zap_reports:/zap/wrk \\
+                        -w /zap/wrk \\
+                        zaproxy/zap-stable \\
+                        zap-baseline.py \\
+                            -t ${APP_TARGET_URL} \\
+                            -r zap_report.html \\
+                            -I
                     """
-                    // Verify the file exists
+                    // Confirm report exists
                     sh "ls -la ${WORKSPACE}/zap_reports/"
-                    sh """
-                        if [ ! -f ${WORKSPACE}/zap_reports/zap_report.html ]; then
-                            echo '❌ ZAP HTML report was NOT generated!'
-                            exit 1
-                        fi
-                    """
-                    archiveArtifacts artifacts: 'zap_reports/zap_report.html'
+                    archiveArtifacts artifacts: 'zap_reports/zap_report.html', allowEmptyArchive: false
                 }
             }
         }
