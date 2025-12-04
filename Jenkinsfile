@@ -62,7 +62,7 @@ pipeline{
                 sh 'apt-get update && apt-get install -y libatomic1'
                 sh "npm install"
                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DPCheck'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml, **/dependency-check-report.html'
             }
         }
         
