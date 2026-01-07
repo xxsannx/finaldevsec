@@ -1,0 +1,6 @@
+logs:
+  - type: file
+    path: /var/www/storage/logs/laravel.log
+    service: pineus-tilu-app
+    source: php
+    sourcecategory: sourcecode

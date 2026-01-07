@@ -206,7 +206,9 @@ services:
         ports:
             - "8090:8080"
             - "8091:8090" 
-        command: zap-webswing.sh 
+        command: 
+            - zap-webswing.sh
+            - Dwebswing.authenticate=false
         networks:
             - pineus_network
       

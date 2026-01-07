@@ -1,0 +1,24 @@
+init_config:
+
+instances:
+  - server: localhost
+    port: 3306
+    user: datadog
+    pass: 'DatadogPass123!'
+    
+    # Optional: Monitor specific database
+    # dbm: true
+    # reported_hostname: pineus-tilu-db
+    
+    tags:
+      - 'env:production'
+      - 'app:pineus-tilu'
+      - 'service:mysql'
+    
+    options:
+      replication: false
+      galera_cluster: false
+      extra_status_metrics: true
+      extra_innodb_metrics: true
+      extra_performance_metrics: true
+      schema_size_metrics: true

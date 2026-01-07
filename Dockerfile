@@ -1,6 +1,6 @@
 # --- Stage 1: Base Image (OS and PHP Extensions) ---
-FROM php:8.1-fpm-alpine as base
-# ... (Kode Stage 1 tetap sama) ...
+FROM php:8.1-fpm-alpine AS base
+
 RUN apk add --no-cache \
     git \
     curl \
@@ -25,7 +25,7 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
 WORKDIR /var/www/html
 
 # --- Stage 2: Dependency Installation (Copy Seluruh Proyek) ---
-FROM base as dependencies
+FROM base AS dependencies
 
 # Install Composer dan Node.js/NPM
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -42,7 +42,7 @@ RUN npm install
 RUN npm run build 
 
 # --- Stage 3: Final Production Image (Bersihkan COPY paths) ---
-FROM base as final
+FROM base AS final
 
 # Copy application code
 COPY . .

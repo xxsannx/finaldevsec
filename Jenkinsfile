@@ -129,7 +129,7 @@ pipeline{
                     // Confirm report exists
                     sh "ls -la ${WORKSPACE}/zap_reports/"
 
-                    archiveArtifacts artifacts: 'zap_reports/*', allowEmptyArchive: false
+                    archiveArtifacts artifacts: 'zap_reports/*', allowEmptyArchive: true,  fingerprint: true
                    
                 }
             }

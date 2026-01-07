@@ -7,16 +7,24 @@ scrape_configs:
   # 1. Job untuk mengumpulkan metrics dari Prometheus itu sendiri
   - job_name: 'prometheus'
     static_configs:
+      # Target: Service Prometheus itu sendiri, diakses dari dalam kontainer
       - targets: ['localhost:9090']
 
   # 2. Job untuk mengumpulkan metrics dari Node Exporter (System Host Metrics)
   - job_name: 'node_exporter'
     static_configs:
-      # Gunakan nama service Docker Compose untuk Node Exporter
+      # Target: service 'node_exporter' di port 9100
       - targets: ['node_exporter:9100']
 
   # 3. Job untuk mengumpulkan metrics dari Nginx Exporter
   - job_name: 'nginx'
     static_configs:
-      # Gunakan nama service Docker Compose untuk Nginx Exporter
+      # Target: service 'nginx_exporter' di port 9113
       - targets: ['nginx_exporter:9113']
+
+  # 4. 🔥 PENTING: Job untuk mengumpulkan metrik dari Aplikasi Laravel (App)
+  # Metrik ini akan Anda instrumentasi secara kustom (misalnya, /metrics)
+  - job_name: 'laravel_app'
+    metrics_path: /metrics # Asumsi: Laravel diekspos di /metrics
+    static_configs:
+      - targets: ['app:9000'] # Target: service 'app' di port 9000
